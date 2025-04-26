@@ -6,7 +6,7 @@ unordered_map<int, bool> keys;
 unordered_map<int, bool> mouse;
 ofVec2f mousePos, pmousePos;
 ofVec2f mapPos;//sceneDisplayed==0||sceneDisplayed==2
-double mapScale;
+double mapScale=1;
 class Vec3 {
 	//ofVec3f but double precision
 	//todo:angle stuff
@@ -133,7 +133,8 @@ private:
 int sceneDisplayed = 2;//0=instruments,1=map,2=craft part details,3=camera(future)
 void dragMap() {
 	if (sceneDisplayed != 0 && sceneDisplayed != 2)return;
-	mapPos += mousePos - pmousePos;
+	if (!mouse[0])return;
+	mapPos += (mousePos - pmousePos)/mapScale;
 }
 class ofApp : public ofBaseApp{
 
@@ -150,6 +151,7 @@ class ofApp : public ofBaseApp{
 		void mouseReleased(int x, int y, int button);
 		void mouseEntered(int x, int y);
 		void mouseExited(int x, int y);
+		void mouseScrolled(int x, int y, float sx, float sy);
 		void windowResized(int w, int h);
 		void dragEvent(ofDragInfo dragInfo);
 		void gotMessage(ofMessage msg);
