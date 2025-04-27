@@ -5,7 +5,7 @@ PhysicsGrid p(make_shared<GridElement>(root), { 0,0,0 }, { 0,0,0 });
 void ofApp::setup(){
 	//ofSetFrameRate(60);
 	//ofSetVerticalSync(true);
-	p.getItem(0, 0, 0);
+	ofDisableAntiAliasing();
 }
 
 void ofApp::update(){
@@ -14,13 +14,15 @@ void ofApp::update(){
 
 void ofApp::draw(){
 	pmousePos.set(mousePos);
-	mousePos.set(mouseX, mouseY);
-	ofDrawBitmapString(to_string(mapPos.x) + "," + to_string(mapPos.y) + "," + to_string(mapScale), 0, 100);
+	mousePos.set(ofGetMouseX(), ofGetMouseY());
+	ofVec2f m = untransform2D(mousePos);
+	ofDrawBitmapString(to_string(m.x) + "," + to_string(m.y), 0, 100);
 	ofPushMatrix();
 	ofTranslate(ofGetWidth() / 2, ofGetHeight() / 2);
 	ofScale(mapScale);
 	ofTranslate(mapPos);
 	p.displayMode2(0);
+	ofDrawCircle(untransform2D(mousePos), 4.0 / mapScale);
 	ofPopMatrix();
 }
 
@@ -80,7 +82,8 @@ int main() {
 	settings.windowMode = OF_WINDOW;
 	settings.decorated = false;
 	auto window = ofCreateWindow(settings);
-
+	//cout << filesystem::current_path();
+	//throw "";
 	ofRunApp(window, make_shared<ofApp>());
 	ofRunMainLoop();
 

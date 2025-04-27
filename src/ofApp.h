@@ -4,6 +4,26 @@
 
 unordered_map<int, bool> keys;
 unordered_map<int, bool> mouse;
+ofVec2f untransform2D(ofVec2f vec) {
+	ofVec2f temp = vec-ofVec2f(ofGetWidth() / 2, ofGetHeight() / 2);
+	ofMatrix4x4 modelView = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
+	ofMatrix4x4 inverse = modelView.getInverse();
+	return ofVec4f(temp.x, temp.y, 0, 1) * inverse;
+}
+unordered_map<string, ofImage> imageCache;
+void drawImage(string img, float x, float y) {
+	auto result = imageCache.find(img);
+	ofImage temp;
+	if (result == imageCache.end()) {
+		if (!temp.load(img))throw "image "+img+" not loaded correctly";
+		temp.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+		imageCache[img] = temp;
+	}
+	else {
+		temp = result->second;
+	}
+	temp.draw(x, y);
+}
 ofVec2f mousePos, pmousePos;
 ofVec2f mapPos;//sceneDisplayed==0||sceneDisplayed==2
 double mapScale=1;
@@ -52,12 +72,68 @@ public:
 	GridElement(string t, double m) {
 		type = t;
 		mass = m;
+		frontFace = 4;
+		topFace = 2;
+		rightFace = 0;
 	}
 	string type;
 	double mass;
+	int frontFace, topFace, rightFace;
+	ofVec3f faceNormal(int face) {
+		switch (face) {
+		case 0:
+			return { 1,0,0 };//right
+		case 1:
+			return { -1,0,0 };//left
+		case 2:
+			return { 0,1,0 };//up
+		case 3:
+			return { 0,-1,0 };//down
+		case 4:
+			return { 0,0,1 };//forwards
+		case 5:
+			return { 0,0,-1 };//backwards
+		}
+	}
+	ofVec3f front() {//returns normal vector of front face(in grid coordinates)
+		return faceNormal(frontFace);
+	}
+	ofVec3f top() {
+		//alright,now we need to determine where the top face is.
+		//it cannot be the front face or the back face.
+		int i = 0, j=topFace;
+		for (; i <= j; i++) {
+			if (i == frontFace || i == (frontFace ^ 1))j++;
+		}
+		return faceNormal(j);
+	}
+	ofVec3f right() {
+		//the right face cannot be any of the other four faces.
+		int j = topFace;
+		for (int i = 0; i <= j; i++) {
+			if (i == frontFace || i == (frontFace ^ 1))j++;
+		}
+		int k = rightFace;
+		for (int i = 0; i <= k; i++) {
+			if (i == frontFace || i == (frontFace ^ 1))k++;
+			if (i == j || i == (j ^ 1))k++;
+		}
+		return faceNormal(k);
+	}
+	void rotateFrontFace() {
+		frontFace++;
+		frontFace %= 6;
+	}
+	void rotateTopFace() {
+		topFace++;
+		topFace %= 4;
+	}
+	void rotateRightFace() {
+		rightFace++;
+		rightFace %= 2;
+	}
 	void displayMode2() {
-		//ofDrawBitmapString(type, 0, 0);
-		ofDrawRectangle(0, 0, 1, 1);
+		drawImage("./textures/parts/" + type + ".png", 0, 0);
 	}
 };
 class PhysicsGrid {
@@ -90,10 +166,11 @@ public:
 		for (auto& ptr : contents) {
 			ofVec3f pos = keyPos(ptr.first);
 			if (round(pos.y) != y) continue;
-			ofPoint sPos(pos.x*16, pos.z*16);
+			//in this scene,x+ goes up while z+ goes left
+			ofPoint sPos(-pos.z*16, -pos.x*16);
+
 			ofPushMatrix();
 			ofTranslate(sPos);
-			ofScale(16);
 			ptr.second->displayMode2();
 			ofPopMatrix();
 		}
