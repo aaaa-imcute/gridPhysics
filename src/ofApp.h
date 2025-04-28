@@ -10,6 +10,9 @@ ofVec2f untransform2D(ofVec2f vec) {
 	ofMatrix4x4 inverse = modelView.getInverse();
 	return ofVec4f(temp.x, temp.y, 0, 1) * inverse;
 }
+ofVec2f mousePos, pmousePos;
+ofVec2f mapPos;//sceneDisplayed==0||sceneDisplayed==2
+double mapScale = 1;
 unordered_map<string, ofImage> imageCache;
 void drawImage(string img, float x, float y) {
 	auto result = imageCache.find(img);
@@ -22,11 +25,29 @@ void drawImage(string img, float x, float y) {
 	else {
 		temp = result->second;
 	}
+	ofSetColor(255,255,255);
 	temp.draw(x, y);
 }
-ofVec2f mousePos, pmousePos;
-ofVec2f mapPos;//sceneDisplayed==0||sceneDisplayed==2
-double mapScale=1;
+void drawLine(ofVec2f p1, ofVec2f p2, float width) {//replacement method for line width
+	ofPushMatrix();
+	ofTranslate(p1);
+	ofRotateRad(atan2f(p2.y - p1.y, p2.x - p1.x));
+	ofDrawRectangle(- ofVec2f(0, width), p1.distance(p2), width * 2);
+	ofPopMatrix();
+}
+void drawFaceNormal2D(ofVec3f v, ofVec2f pos) {//sceneDisplay==2
+	ofVec2f d(-v.z, -v.x);
+	if (abs(v.y) < 0.01) {
+		drawLine(pos, pos + d * 16,1);
+	}
+	else if (v.y > 0) {
+		ofDrawCircle(pos, 2);
+	}
+	else if (v.y < 0) {
+		drawLine(pos + ofVec2f(-4, -4), pos + ofVec2f(4, 4),1);
+		drawLine(pos + ofVec2f(-4, 4), pos + ofVec2f(4, -4),1);
+	}
+}
 class Vec3 {
 	//ofVec3f but double precision
 	//todo:angle stuff
@@ -136,6 +157,7 @@ public:
 		drawImage("./textures/parts/" + type + ".png", 0, 0);
 	}
 };
+shared_ptr<GridElement> selectedPart;//sceneDisplayed==2
 class PhysicsGrid {
 public:
 	Vec3 pos;//world position of origin
@@ -168,10 +190,19 @@ public:
 			if (round(pos.y) != y) continue;
 			//in this scene,x+ goes up while z+ goes left
 			ofPoint sPos(-pos.z*16, -pos.x*16);
-
 			ofPushMatrix();
 			ofTranslate(sPos);
+			ofVec2f m = untransform2D(mousePos);
 			ptr.second->displayMode2();
+			if (mouse[2] && m.x > sPos.x && m.x<sPos.x + 16 && m.y>sPos.y && m.y < sPos.y + 16) selectedPart = ptr.second;
+			if (selectedPart == ptr.second) {
+				ofSetColor(0, 0, 255);
+				drawFaceNormal2D(ptr.second->front(), sPos + ofVec2f(8, 8));
+				ofSetColor(0, 255, 0);
+				drawFaceNormal2D(ptr.second->top(), sPos + ofVec2f(8, 8));
+				ofSetColor(255, 0, 0);
+				drawFaceNormal2D(ptr.second->right(), sPos + ofVec2f(8, 8));
+			}
 			ofPopMatrix();
 		}
 	}

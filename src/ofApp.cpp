@@ -15,19 +15,23 @@ void ofApp::update(){
 void ofApp::draw(){
 	pmousePos.set(mousePos);
 	mousePos.set(ofGetMouseX(), ofGetMouseY());
-	ofVec2f m = untransform2D(mousePos);
-	ofDrawBitmapString(to_string(m.x) + "," + to_string(m.y), 0, 100);
 	ofPushMatrix();
 	ofTranslate(ofGetWidth() / 2, ofGetHeight() / 2);
 	ofScale(mapScale);
 	ofTranslate(mapPos);
 	p.displayMode2(0);
+	ofSetColor(255, 255, 255);
 	ofDrawCircle(untransform2D(mousePos), 4.0 / mapScale);
 	ofPopMatrix();
 }
 
 void ofApp::keyPressed(int key){
 	keys[key] = true;
+	if (selectedPart != nullptr) {
+		if (key == 'r')selectedPart->rotateFrontFace();
+		if (key == 't')selectedPart->rotateTopFace();
+		if (key == 'y')selectedPart->rotateRightFace();
+	}
 }
 
 void ofApp::keyReleased(int key){
