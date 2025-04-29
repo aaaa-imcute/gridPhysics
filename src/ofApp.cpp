@@ -19,6 +19,7 @@ void ofApp::draw(){
 	ofTranslate(ofGetWidth() / 2, ofGetHeight() / 2);
 	ofScale(mapScale);
 	ofTranslate(mapPos);
+	if (mouse[2])selectedPart = nullptr;
 	p.displayMode2(0);
 	ofSetColor(255, 255, 255);
 	ofDrawCircle(untransform2D(mousePos), 4.0 / mapScale);

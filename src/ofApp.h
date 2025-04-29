@@ -141,6 +141,35 @@ public:
 		}
 		return faceNormal(k);
 	}
+	vector<int> faces() {
+		vector<int> result(6);
+		result[frontFace] = 4;
+		result[frontFace ^ 1] = 5;
+		int j = topFace;
+		for (int i = 0; i <= j; i++) {
+			if (i == frontFace || i == (frontFace ^ 1))j++;
+		}
+		result[j] = 2;
+		result[j ^ 1] = 3;
+		int k = rightFace;
+		for (int i = 0; i <= k; i++) {
+			if (i == frontFace || i == (frontFace ^ 1))k++;
+			if (i == j || i == (j ^ 1))k++;
+		}
+		result[k] = 0;
+		result[k ^ 1] = 1;
+		return result;
+	}
+	ofVec3f pointingFace(int p) {
+		//what face "up" points to on a face
+		//front if not front or back,
+		//front points to top,back points to bottom
+		//input is in craft coordinates NOT part coordinates
+		vector<int> f = faces();
+		if (f[p] < 4) return front();
+		if (f[p] == 4)return top();
+		return -top();
+	}
 	void rotateFrontFace() {
 		frontFace++;
 		frontFace %= 6;
@@ -154,7 +183,18 @@ public:
 		rightFace %= 2;
 	}
 	void displayMode2() {
-		drawImage("./textures/parts/" + type + ".png", 0, 0);
+		vector<string> faceNames = { "right","left","top","bottom","front","back" };
+		vector<int> f = faces();
+		ofVec3f p = pointingFace(2);
+		ofVec2f n(-p.z, -p.x);
+		ofPushMatrix();
+		ofTranslate(8, 8);
+		ofRotateRad(atan2f(n.y, n.x) + PI / 2);
+		if (front().crossed(top()) == right() && f[2] > 1)ofScale(-1, 1);
+		//problem:does not consider float imprecision,though in theory it doesn't need to
+		ofTranslate(-8, -8);
+		drawImage("./textures/parts/" + type + "_" + faceNames[f[2]] + ".png", 0, 0);
+		ofPopMatrix();
 	}
 };
 shared_ptr<GridElement> selectedPart;//sceneDisplayed==2
