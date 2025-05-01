@@ -15,15 +15,31 @@ void ofApp::update(){
 void ofApp::draw(){
 	pmousePos.set(mousePos);
 	mousePos.set(ofGetMouseX(), ofGetMouseY());
-	ofPushMatrix();
-	ofTranslate(ofGetWidth() / 2, ofGetHeight() / 2);
-	ofScale(mapScale);
-	ofTranslate(mapPos);
-	if (mouse[2])selectedPart = nullptr;
-	p.displayMode2(0);
-	ofSetColor(255, 255, 255);
-	ofDrawCircle(untransform2D(mousePos), 4.0 / mapScale);
-	ofPopMatrix();
+	if (keys['2'])sceneDisplayed = 2;
+	if (keys['3'])sceneDisplayed = 3;
+	if(sceneDisplayed==3) camera.enableMouseInput();
+	else camera.disableMouseInput();
+	switch(sceneDisplayed){
+	case 2:
+		ofPushMatrix();
+		ofTranslate(ofGetWidth() / 2, ofGetHeight() / 2);
+		ofScale(mapScale);
+		ofTranslate(mapPos);
+		if (mouse[2])selectedPart = nullptr;
+		p.displayMode2(0);
+		break;
+		//ofSetColor(255, 255, 255);
+		//ofDrawCircle(untransform2D(mousePos), 4.0 / mapScale);
+		ofPopMatrix();
+	case 3:
+		camera.begin();
+		ofEnableDepthTest();
+		p.displayMode3();
+		ofDrawAxis(256);
+		ofDisableDepthTest();
+		camera.end();
+		break;
+	}
 }
 
 void ofApp::keyPressed(int key){
@@ -64,7 +80,8 @@ void ofApp::mouseExited(int x, int y){
 }
 
 void ofApp::mouseScrolled(int x, int y, float sx, float sy) {
-	mapScale *= pow(2,(sy / 4));
+	if(sceneDisplayed==0||sceneDisplayed==2)mapScale *= pow(2,(sy / 4));
+	if (sceneDisplayed == 1 || sceneDisplayed == 3)camera.dolly(-sy * 50);
 }
 
 void ofApp::windowResized(int w, int h){

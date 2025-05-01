@@ -13,6 +13,7 @@ ofVec2f untransform2D(ofVec2f vec) {
 ofVec2f mousePos, pmousePos;
 ofVec2f mapPos;//sceneDisplayed==0||sceneDisplayed==2
 double mapScale = 1;
+ofEasyCam camera;//sceneDisplayed==1||sceneDisplayed==3
 unordered_map<string, ofImage> imageCache;
 void drawImage(string img, float x, float y) {
 	auto result = imageCache.find(img);
@@ -47,6 +48,21 @@ void drawFaceNormal2D(ofVec3f v, ofVec2f pos) {//sceneDisplay==2
 		drawLine(pos + ofVec2f(-4, -4), pos + ofVec2f(4, 4),1);
 		drawLine(pos + ofVec2f(-4, 4), pos + ofVec2f(4, -4),1);
 	}
+}
+ofMesh getRectangleMesh(ofVec3f pos, ofVec3f width, ofVec3f height) {
+	float scale = 256;
+	ofVec3f normal = height.getCrossed(width);
+	ofMesh m;
+	m.addVertex(ofPoint(pos * scale));
+	m.addVertex(ofPoint((pos + width) * scale));
+	m.addVertex(ofPoint((pos + height) * scale));
+	m.addVertex(ofPoint((pos + width + height) * scale));
+	m.addVertex(ofPoint((pos + width) * scale));
+	m.addVertex(ofPoint((pos + height) * scale));
+	for (int i = 0; i < 6; i++)m.addNormal(normal);
+	m.addTriangle(0, 1, 2);
+	m.addTriangle(3, 4, 5);
+	return m;
 }
 class Vec3 {
 	//ofVec3f but double precision
@@ -100,7 +116,7 @@ public:
 	string type;
 	double mass;
 	int frontFace, topFace, rightFace;
-	ofVec3f faceNormal(int face) {
+	ofVec3f faceNormal(int face) {//returns ship coordinates
 		switch (face) {
 		case 0:
 			return { 1,0,0 };//right
@@ -116,7 +132,7 @@ public:
 			return { 0,0,-1 };//backwards
 		}
 	}
-	ofVec3f front() {//returns normal vector of front face(in grid coordinates)
+	ofVec3f front() {//returns normal vector of front face(in ship coordinates)
 		return faceNormal(frontFace);
 	}
 	ofVec3f top() {
@@ -200,20 +216,23 @@ public:
 shared_ptr<GridElement> selectedPart;//sceneDisplayed==2
 class PhysicsGrid {
 public:
-	Vec3 pos;//world position of origin
-	Vec3 vel;
-	ofQuaternion angle = { 1,0,0,0 };
-	ofQuaternion avel = { 1,0,0,0 };
+	Vec3 position;//world position of origin
+	Vec3 velocity;
+	ofQuaternion angle;
+	ofQuaternion avel;
 	PhysicsGrid(shared_ptr<GridElement> root,Vec3 p, Vec3 v) {
-		pos = p;
-		vel = v;
+		position = p;
+		velocity = v;
 		setItem(root, 0, 0, 0);
+		brush = { mesh };
 		updateGrid();
 	}
 	shared_ptr<GridElement> getItem(int x, int y, int z) {
 		return getItem(ofVec3f(x,y,z));
 	}
 	shared_ptr<GridElement> getItem(ofVec3f index) {
+		string i = keyString(index);
+		if (contents.find(i) == contents.end())return nullptr;
 		return contents[keyString(index)];
 	}
 	shared_ptr<GridElement> setItem(shared_ptr<GridElement> e, int x, int y, int z) {
@@ -246,13 +265,21 @@ public:
 			ofPopMatrix();
 		}
 	}
+	void displayMode3() {
+		brush.setGlobalOrientation(angle);
+		brush.setGlobalPosition(0, 0, 0);
+		ofSetColor(255, 255, 255);
+		brush.draw();
+	}
 private:
 	unordered_map<string,shared_ptr<GridElement>> contents;
 	//y points down,z points right,x points forwards in that order
 	double mass;
 	ofVec3f COM;//logical coordinates
+	of3dPrimitive brush;
+	ofMesh mesh;
 	string keyString(ofVec3f index) {
-		return keyString((int)index.x, (int)index.y, (int)index.z);
+		return keyString((int)round(index.x), (int)round(index.y), (int)round(index.z));
 	}
 	string keyString(int x, int y, int z) {
 		return to_string(x) + "," + to_string(y) + "," + to_string(z);
@@ -273,8 +300,28 @@ private:
 		mass = 0;
 		COM.set(0, 0, 0);
 		for(auto& ptr:contents){
+			if (ptr.second == nullptr)continue;
 			mass += ptr.second->mass;
 			COM += keyPos(ptr.first) * ptr.second->mass;
+		}
+		mesh.clear();
+		for (auto& ptr : contents) {
+			if (ptr.second == nullptr)continue;
+			ofVec3f pos = keyPos(ptr.first);
+			for (int i = 0; i < 6; i++) {
+				ofVec3f normal = ptr.second->faceNormal(i);
+				if (getItem(pos + normal) != nullptr)continue;
+				//if i is divisible by 2,the face points to a positive direction
+				//it does not contain the origin and has to be translated by its normal vector
+				//both triangles also have to swap chirality
+				//zn(5)->yp(2) xp(0)
+				//yn(3)->xp(0) zp(4)
+				//xn(1)->zp(4) yp(2)
+				ofVec3f w = ptr.second->faceNormal((i/2*2 + 4) % 6), 
+					h = ptr.second->faceNormal((i / 2 * 2 + 2) % 6);
+				if (i % 2 == 0) mesh.append(getRectangleMesh(pos + normal, w, h));
+				else mesh.append(getRectangleMesh(pos, h, w));
+			}
 		}
 	}
 };
