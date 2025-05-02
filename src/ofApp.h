@@ -214,6 +214,7 @@ public:
 	}
 };
 shared_ptr<GridElement> selectedPart;//sceneDisplayed==2
+ofVec3f selectedPos;
 class PhysicsGrid {
 public:
 	Vec3 position;//world position of origin
@@ -251,18 +252,22 @@ public:
 			ofPoint sPos(-pos.z*16, -pos.x*16);
 			ofPushMatrix();
 			ofTranslate(sPos);
-			ofVec2f m = untransform2D(mousePos);
 			ptr.second->displayMode2();
-			if (mouse[2] && m.x > sPos.x && m.x<sPos.x + 16 && m.y>sPos.y && m.y < sPos.y + 16) selectedPart = ptr.second;
-			if (selectedPart == ptr.second) {
-				ofSetColor(0, 0, 255);
-				drawFaceNormal2D(ptr.second->front(), sPos + ofVec2f(8, 8));
-				ofSetColor(0, 255, 0);
-				drawFaceNormal2D(ptr.second->top(), sPos + ofVec2f(8, 8));
-				ofSetColor(255, 0, 0);
-				drawFaceNormal2D(ptr.second->right(), sPos + ofVec2f(8, 8));
-			}
 			ofPopMatrix();
+			ofVec2f m = untransform2D(mousePos);
+			if (mouse[2] && m.x > sPos.x && m.x<sPos.x + 16 && m.y>sPos.y && m.y < sPos.y + 16) {
+				selectedPart = ptr.second;
+				selectedPos = pos;
+			}
+		}
+		if (selectedPart != nullptr) {
+			ofPoint sPos(-selectedPos.z * 16, -selectedPos.x * 16);
+			ofSetColor(0, 0, 255);
+			drawFaceNormal2D(selectedPart->front(), sPos + ofVec2f(8, 8));
+			ofSetColor(0, 255, 0);
+			drawFaceNormal2D(selectedPart->top(), sPos + ofVec2f(8, 8));
+			ofSetColor(255, 0, 0);
+			drawFaceNormal2D(selectedPart->right(), sPos + ofVec2f(8, 8));
 		}
 	}
 	void displayMode3() {
@@ -293,7 +298,7 @@ private:
 		getline(s, temp, ',');
 		res.y = stod(temp);
 		getline(s, temp, ',');
-		res.y = stod(temp);
+		res.z = stod(temp);
 		return res;
 	}
 	void updateGrid() {

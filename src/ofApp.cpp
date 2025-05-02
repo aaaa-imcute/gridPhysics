@@ -1,11 +1,13 @@
 #include "ofApp.h"
 
 GridElement root("test", 1);
+GridElement t("test", 1);
 PhysicsGrid p(make_shared<GridElement>(root), { 0,0,0 }, { 0,0,0 });
 void ofApp::setup(){
 	//ofSetFrameRate(60);
 	//ofSetVerticalSync(true);
 	ofDisableAntiAliasing();
+	p.setItem(make_shared<GridElement>(t), 1, 0, 0);
 }
 
 void ofApp::update(){
@@ -27,10 +29,10 @@ void ofApp::draw(){
 		ofTranslate(mapPos);
 		if (mouse[2])selectedPart = nullptr;
 		p.displayMode2(0);
-		break;
 		//ofSetColor(255, 255, 255);
 		//ofDrawCircle(untransform2D(mousePos), 4.0 / mapScale);
 		ofPopMatrix();
+		break;
 	case 3:
 		camera.begin();
 		ofEnableDepthTest();
