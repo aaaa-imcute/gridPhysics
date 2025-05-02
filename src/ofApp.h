@@ -328,6 +328,7 @@ private:
 				else mesh.append(getRectangleMesh(pos, h, w));
 			}
 		}
+		brush = { mesh };
 	}
 };
 int sceneDisplayed = 2;//0=instruments,1=map,2=craft part details,3=camera(future)
