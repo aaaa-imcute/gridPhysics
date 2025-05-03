@@ -12,22 +12,61 @@ ofVec2f untransform2D(ofVec2f vec) {
 }
 ofVec2f mousePos, pmousePos;
 ofVec2f mapPos;//sceneDisplayed==0||sceneDisplayed==2
-double mapScale = 1;
+double mapScale = 16;
 ofEasyCam camera;//sceneDisplayed==1||sceneDisplayed==3
+vector<string> faceNames = { "right","left","top","bottom","front","back" };
 unordered_map<string, ofImage> imageCache;
-void drawImage(string img, float x, float y) {
+ofImage loadImage(string img) {
 	auto result = imageCache.find(img);
 	ofImage temp;
 	if (result == imageCache.end()) {
-		if (!temp.load(img))throw "image "+img+" not loaded correctly";
+		if (!temp.load(img))throw "image " + img + " not loaded correctly";
 		temp.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 		imageCache[img] = temp;
 	}
 	else {
 		temp = result->second;
 	}
+	return temp;
+}
+void drawImage(string img, float x, float y) {
+	ofImage temp = loadImage(img);
 	ofSetColor(255,255,255);
 	temp.draw(x, y);
+}
+ofFbo atlas;
+unordered_map<string, ofVec2f> atlasMap;
+void walkTextures(string path, int& x, int& y) {
+	ofDirectory dir(path);
+	if (!dir.isDirectory()) {
+		string n = dir.getOriginalDirectory();
+		ofImage temp = loadImage(n.substr(0,n.size()-1));
+		atlas.begin();
+		temp.draw(x, y);
+		atlas.end();
+		//length of .\\textures\\ is 11 and length of .png is 4,also account for extra \\ at end
+		atlasMap[n.substr(11, n.size() - 16)] = { (float)x, (float)y };
+		x += 16;
+		if (x == 4096) {
+			x = 0;
+			y += 16;
+			if (y == 4096)throw "Too many textures";
+		}
+		return;
+	}
+	dir.listDir();
+	for (int i = 0; i < dir.size(); i++) {
+		walkTextures(dir.getPath(i), x, y);
+	}
+}
+void createAtlas() {
+	int SIZE = 1024;//so max.4096 textures
+	atlas.allocate(SIZE, SIZE);
+	atlas.begin();
+	ofClear(0);
+	atlas.end();
+	int x = 0, y = 0;
+	walkTextures(".\\textures\\", x, y);
 }
 void drawLine(ofVec2f p1, ofVec2f p2, float width) {//replacement method for line width
 	ofPushMatrix();
@@ -49,16 +88,22 @@ void drawFaceNormal2D(ofVec3f v, ofVec2f pos) {//sceneDisplay==2
 		drawLine(pos + ofVec2f(-4, 4), pos + ofVec2f(4, -4),1);
 	}
 }
-ofMesh getRectangleMesh(ofVec3f pos, ofVec3f width, ofVec3f height) {
+ofMesh getRectangleMesh(ofVec3f pos, ofVec3f width, ofVec3f height, ofVec2f apos, ofVec2f aw, ofVec2f ah) {
 	float scale = 256;
 	ofVec3f normal = height.getCrossed(width);
 	ofMesh m;
 	m.addVertex(ofPoint(pos * scale));
+	m.addTexCoord(apos);
 	m.addVertex(ofPoint((pos + width) * scale));
+	m.addTexCoord(apos + aw);
 	m.addVertex(ofPoint((pos + height) * scale));
+	m.addTexCoord(apos + ah);
 	m.addVertex(ofPoint((pos + width + height) * scale));
+	m.addTexCoord(apos + aw + ah);
 	m.addVertex(ofPoint((pos + width) * scale));
+	m.addTexCoord(apos + aw);
 	m.addVertex(ofPoint((pos + height) * scale));
+	m.addTexCoord(apos + ah);
 	for (int i = 0; i < 6; i++)m.addNormal(normal);
 	m.addTriangle(0, 1, 2);
 	m.addTriangle(3, 4, 5);
@@ -199,17 +244,16 @@ public:
 		rightFace %= 2;
 	}
 	void displayMode2() {
-		vector<string> faceNames = { "right","left","top","bottom","front","back" };
 		vector<int> f = faces();
 		ofVec3f p = pointingFace(2);
 		ofVec2f n(-p.z, -p.x);
 		ofPushMatrix();
 		ofTranslate(8, 8);
 		ofRotateRad(atan2f(n.y, n.x) + PI / 2);
-		if (front().crossed(top()) == right() && f[2] > 1)ofScale(-1, 1);
+		if (front().getCrossed(top()) == right() && f[2] > 1)ofScale(-1, 1);
 		//problem:does not consider float imprecision,though in theory it doesn't need to
 		ofTranslate(-8, -8);
-		drawImage("./textures/parts/" + type + "_" + faceNames[f[2]] + ".png", 0, 0);
+		drawImage(".\\textures\\parts\\" + type + "_" + faceNames[f[2]] + ".png", 0, 0);
 		ofPopMatrix();
 	}
 };
@@ -244,6 +288,13 @@ public:
 		updateGrid();
 		return e;
 	}
+	void removeItem(int x, int y, int z) {
+		removeItem({ (float)x,(float)y,(float)z });
+	}
+	void removeItem(ofVec3f v) {
+		contents.erase(keyString(v));
+		updateGrid();
+	}
 	void displayMode2(int y) {
 		for (auto& ptr : contents) {
 			ofVec3f pos = keyPos(ptr.first);
@@ -274,7 +325,80 @@ public:
 		brush.setGlobalOrientation(angle);
 		brush.setGlobalPosition(0, 0, 0);
 		ofSetColor(255, 255, 255);
+		ofPushMatrix();
+		ofScale(1, 1, -1);
+		ofTexture t = atlas.getTexture();
+		t.bind();
 		brush.draw();
+		t.unbind();
+		ofPopMatrix();
+	}
+	void updateGrid() {
+		mass = 0;
+		COM.set(0, 0, 0);
+		for (auto& ptr : contents) {
+			if (ptr.second == nullptr)continue;
+			mass += ptr.second->mass;
+			COM += keyPos(ptr.first) * ptr.second->mass;
+		}
+		mesh.clear();
+		for (auto& ptr : contents) {
+			if (ptr.second == nullptr)continue;
+			ofVec3f pos = keyPos(ptr.first);
+			bool flipped = ptr.second->front().getCrossed(ptr.second->top()) == ptr.second->right();
+			for (int i = 0; i < 6; i++) {
+				ofVec3f normal = ptr.second->faceNormal(i);
+				if (getItem(pos + normal) != nullptr)continue;
+				ofVec3f w = ptr.second->faceNormal((i / 2 * 2 + 4) % 6),
+					h = ptr.second->faceNormal((i / 2 * 2 + 2) % 6);
+				int bf = ptr.second->faces()[i];
+				string fn = faceNames[bf];
+				string an = "parts\\" + ptr.second->type + "_" + fn;
+				ofVec3f pf = ptr.second->pointingFace(i);
+				ofVec3f rp, rw, rh;
+				if (i % 2 == 0) {
+					rp = pos + normal;
+					rw = w;
+					rh = h;
+				}
+				else {
+					rp = pos;
+					rw = h;
+					rh = w;
+				}
+				//this is a very long function
+				ofVec2f ap, aw, ah,t1,t2,t3;
+				t1 = atlasMap[an];
+				t2 = { 16,0 };
+				t3 = { 0,16 };
+				if (!flipped || !(bf > 1)) {
+					t1 += t2;
+					t2 *= -1;
+				}
+				if (pf == -rh) {
+					ap = t1;
+					aw = t2;
+					ah = t3;
+				}
+				else if (pf == rw) {
+					ap = t1 + t3;
+					aw = -t3;
+					ah = t2;
+				}
+				else if (pf == rh) {
+					ap = t1 + t2 + t3;
+					aw = -t2;
+					ah = -t3;
+				}
+				else if (pf == -rw) {
+					ap = t1 + t2;
+					aw = t3;
+					ah = -t2;
+				}
+				mesh.append(getRectangleMesh(rp, rw, rh, ap, aw, ah));
+			}
+		}
+		brush = { mesh };
 	}
 private:
 	unordered_map<string,shared_ptr<GridElement>> contents;
@@ -300,35 +424,6 @@ private:
 		getline(s, temp, ',');
 		res.z = stod(temp);
 		return res;
-	}
-	void updateGrid() {
-		mass = 0;
-		COM.set(0, 0, 0);
-		for(auto& ptr:contents){
-			if (ptr.second == nullptr)continue;
-			mass += ptr.second->mass;
-			COM += keyPos(ptr.first) * ptr.second->mass;
-		}
-		mesh.clear();
-		for (auto& ptr : contents) {
-			if (ptr.second == nullptr)continue;
-			ofVec3f pos = keyPos(ptr.first);
-			for (int i = 0; i < 6; i++) {
-				ofVec3f normal = ptr.second->faceNormal(i);
-				if (getItem(pos + normal) != nullptr)continue;
-				//if i is divisible by 2,the face points to a positive direction
-				//it does not contain the origin and has to be translated by its normal vector
-				//both triangles also have to swap chirality
-				//zn(5)->yp(2) xp(0)
-				//yn(3)->xp(0) zp(4)
-				//xn(1)->zp(4) yp(2)
-				ofVec3f w = ptr.second->faceNormal((i/2*2 + 4) % 6), 
-					h = ptr.second->faceNormal((i / 2 * 2 + 2) % 6);
-				if (i % 2 == 0) mesh.append(getRectangleMesh(pos + normal, w, h));
-				else mesh.append(getRectangleMesh(pos, h, w));
-			}
-		}
-		brush = { mesh };
 	}
 };
 int sceneDisplayed = 2;//0=instruments,1=map,2=craft part details,3=camera(future)

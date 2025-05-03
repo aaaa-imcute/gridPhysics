@@ -1,13 +1,17 @@
 #include "ofApp.h"
 
 GridElement root("test", 1);
-GridElement t("test", 1);
+GridElement t("test2", 1);
 PhysicsGrid p(make_shared<GridElement>(root), { 0,0,0 }, { 0,0,0 });
 void ofApp::setup(){
 	//ofSetFrameRate(60);
 	//ofSetVerticalSync(true);
 	ofDisableAntiAliasing();
-	p.setItem(make_shared<GridElement>(t), 1, 0, 0);
+	ofDisableBlendMode();
+	createAtlas();
+	t.rotateRightFace();
+	p.setItem(make_shared<GridElement>(t), 0, 1, 0);
+	//p.removeItem(0, 0, 0);
 }
 
 void ofApp::update(){
@@ -50,6 +54,7 @@ void ofApp::keyPressed(int key){
 		if (key == 'r')selectedPart->rotateFrontFace();
 		if (key == 't')selectedPart->rotateTopFace();
 		if (key == 'y')selectedPart->rotateRightFace();
+		p.updateGrid();
 	}
 }
 
