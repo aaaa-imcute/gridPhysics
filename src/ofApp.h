@@ -109,7 +109,7 @@ ofMesh getRectangleMesh(ofVec3f pos, ofVec3f width, ofVec3f height, ofVec2f apos
 	m.addTriangle(3, 4, 5);
 	return m;
 }
-static constexpr int FIXEDPOINT_PREC = 1000;
+static constexpr int FIXEDPOINT_PREC = 1000000;
 class Vec3 {
 	//ofVec3f but much more precision
 	//todo:angle stuff
@@ -298,6 +298,7 @@ class PhysicsGrid {
 public:
 	Vec3 position;//need high-precision
 	Vec3 velocity;//doesn't need high-precision but unfortunately ofvec3f are floats
+	//bottleneck on fixedpoint_prec is the handling of small accelerations
 	ofVec3f accel;//verlet internal
 	ofQuaternion angle;
 	ofVec3f avel;//along axis of rotation,magnitude is amount and direction of rotation
