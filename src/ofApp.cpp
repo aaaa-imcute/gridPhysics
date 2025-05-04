@@ -2,7 +2,7 @@
 
 GridElement root("test", 1);
 GridElement t("test2", 1);
-PhysicsGrid p(make_shared<GridElement>(root), { 0,0,0 }, { 0,0,0 });
+PhysicsGrid p(make_shared<GridElement>(root), {}, { 0,0,0 });
 void ofApp::setup(){
 	//ofSetFrameRate(60);
 	//ofSetVerticalSync(true);
@@ -111,8 +111,6 @@ int main() {
 	settings.windowMode = OF_WINDOW;
 	settings.decorated = false;
 	auto window = ofCreateWindow(settings);
-	//cout << filesystem::current_path();
-	//throw "";
 	ofRunApp(window, make_shared<ofApp>());
 	ofRunMainLoop();
 

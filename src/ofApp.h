@@ -109,32 +109,59 @@ ofMesh getRectangleMesh(ofVec3f pos, ofVec3f width, ofVec3f height, ofVec2f apos
 	m.addTriangle(3, 4, 5);
 	return m;
 }
+static constexpr int FIXEDPOINT_PREC = 1000;
 class Vec3 {
-	//ofVec3f but double precision
+	//ofVec3f but much more precision
 	//todo:angle stuff
-public:
-	double x, y, z;
-	Vec3() {
-		x = 0;
-		y = 0;
-		z = 0;
+private:
+	long long _x, _y, _z;
+	class fixedPoint {
+		long long& internal;
+	public:
+		fixedPoint(long long& ref) :internal(ref) {}
+		operator double() const {
+			return double(internal) / FIXEDPOINT_PREC;
+		}
+		fixedPoint& operator=(double o) {
+			internal = o * FIXEDPOINT_PREC;
+			return *this;
+		}
+	};
+	Vec3(long long x1, long long y1, long long z1, bool raw) : _x(0), _y(0), _z(0), x(_x), y(_y), z(_z) {
+		_x = x1;
+		_y = y1;
+		_z = z1;
 	}
-	Vec3(double x1, double y1, double z1) {
+public:
+	fixedPoint x, y, z;
+	Vec3() :_x(0), _y(0), _z(0), x(_x), y(_y), z(_z) {}
+	Vec3(double x1, double y1, double z1) :_x(0), _y(0), _z(0), x(_x), y(_y), z(_z) {
 		x = x1;
 		y = y1;
 		z = z1;
 	}
+	Vec3(ofVec3f v) :_x(0), _y(0), _z(0), x(_x), y(_y), z(_z) {
+		x = v.x;
+		y = v.y;
+		z = v.z;
+	}
+	Vec3 operator=(const Vec3& o) {
+		_x = o._x;
+		_y = o._y;
+		_z = o._z;
+		return *this;
+	}
 	Vec3 operator+(Vec3 o) {
-		return Vec3(x + o.x, y + o.y, z + o.z);
+		return Vec3(_x + o._x, _y + o._y, _z + o._z, 1);
 	}
 	Vec3 operator-(Vec3 o) {
-		return Vec3(x - o.x, y - o.y, z - o.z);
+		return Vec3(_x - o._x, _y - o._y, _z - o._z, 1);
 	}
 	Vec3 operator*(double o) {
-		return Vec3(x * o, y * o, z * o);
+		return Vec3(_x * o, _y * o, _z * o, 1);
 	}
 	Vec3 operator/(double o) {
-		return Vec3(x / o, y / o, z / o);
+		return Vec3(_x / o, _y / o, _z / o, 1);
 	}
 	double sqMag() {
 		return (*this) * (*this);
@@ -145,8 +172,11 @@ public:
 	double operator*(Vec3 o) {
 		return x * o.x + y * o.y + z * o.z;
 	}
-	Vec3 cross(Vec3 o) {
+	Vec3 cross(ofVec3f o) {//used to determine orbital angular momentum
 		return Vec3(y * o.z - z * o.y, z * o.x - x * o.z, x * o.y - y * o.x);
+	}
+	ofVec3f downgrade() {//only downgrade if the result does not represent positions relative to the world origin
+		return ofVec3f(x, y, z);
 	}
 };
 class GridElement {
@@ -256,15 +286,21 @@ public:
 		drawImage(".\\textures\\parts\\" + type + "_" + faceNames[f[2]] + ".png", 0, 0);
 		ofPopMatrix();
 	}
+	ofVec3f getThrust(double dt) {
+		//returns impulse from center of this part in dt
+		//only call once per time interval(because it removes fuel among other things)
+		return { 0,0,0 };
+	}
 };
 shared_ptr<GridElement> selectedPart;//sceneDisplayed==2
 ofVec3f selectedPos;
 class PhysicsGrid {
 public:
-	Vec3 position;//world position of origin
-	Vec3 velocity;
+	Vec3 position;//need high-precision
+	Vec3 velocity;//doesn't need high-precision but unfortunately ofvec3f are floats
+	ofVec3f accel;//verlet internal
 	ofQuaternion angle;
-	ofQuaternion avel;
+	ofVec3f avel;//along axis of rotation,magnitude is amount and direction of rotation
 	PhysicsGrid(shared_ptr<GridElement> root,Vec3 p, Vec3 v) {
 		position = p;
 		velocity = v;
@@ -341,6 +377,8 @@ public:
 			mass += ptr.second->mass;
 			COM += keyPos(ptr.first) * ptr.second->mass;
 		}
+		//TODO
+		//blah blah blah inertial tensor blah blah
 		mesh.clear();
 		for (auto& ptr : contents) {
 			if (ptr.second == nullptr)continue;
@@ -399,12 +437,26 @@ public:
 			}
 		}
 		brush = { mesh };
+
+	}
+	void updatePhysics(double dt) {
+		ofVec3f torque;
+		//TODO
+		avel += inertialTensor.getInverse()*ofVec4f(torque)*dt;
+		angle += ofQuaternion(avel.x,avel.y,avel.z,0)*angle*(dt/2);
+		ofVec3f acc;
+		position = position + velocity * dt + Vec3(acc * (dt * dt / 2));
+		velocity = velocity + Vec3(accel);//estimate(for drag and other speed related forces)
+		//TODO
+		velocity = velocity + Vec3((acc - accel) / 2);//factor in actual acceleration
+		accel = acc;
 	}
 private:
 	unordered_map<string,shared_ptr<GridElement>> contents;
 	//y points down,z points right,x points forwards in that order
 	double mass;
-	ofVec3f COM;//logical coordinates
+	ofVec3f COM;//ship coordinates
+	ofMatrix4x4 inertialTensor;
 	of3dPrimitive brush;
 	ofMesh mesh;
 	string keyString(ofVec3f index) {
