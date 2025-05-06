@@ -19,8 +19,8 @@ void ofApp::update(){
 }
 
 void ofApp::draw(){
-	pmousePos.set(mousePos);
-	mousePos.set(ofGetMouseX(), ofGetMouseY());
+	pmousePos=mousePos;
+	mousePos=glm::vec2(ofGetMouseX(), ofGetMouseY());
 	if (keys['2'])sceneDisplayed = 2;
 	if (keys['3'])sceneDisplayed = 3;
 	if(sceneDisplayed==3) camera.enableMouseInput();
