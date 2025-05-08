@@ -88,8 +88,9 @@ void drawFaceNormal2D(glm::dvec3 v, glm::dvec2 pos) {//sceneDisplay==2
 		drawLine(pos + glm::dvec2(-4, 4), pos + glm::dvec2(4, -4),1);
 	}
 }
+static constexpr double DM3_SCALE = 256;
 ofMesh getRectangleMesh(glm::dvec3 pos, glm::dvec3 width, glm::dvec3 height, glm::dvec2 apos, glm::dvec2 aw, glm::dvec2 ah) {
-	double scale = 256;
+	double scale = DM3_SCALE;
 	glm::dvec3 normal = glm::cross(height, width);
 	ofMesh m;
 	m.addVertex(pos * scale);
@@ -109,89 +110,6 @@ ofMesh getRectangleMesh(glm::dvec3 pos, glm::dvec3 width, glm::dvec3 height, glm
 	m.addTriangle(3, 4, 5);
 	return m;
 }
-/*
-static constexpr int FIXEDPOINT_PREC = 1000000;
-class Vec3 {
-	//glm::dvec3 but much more precision
-	//todo:angle stuff
-private:
-	long long _x, _y, _z;
-	class fixedPoint {
-		long long& internal;
-	public:
-		fixedPoint(long long& ref) :internal(ref) {}
-		operator double() const {
-			return double(internal) / FIXEDPOINT_PREC;
-		}
-		fixedPoint& operator=(double o) {
-			internal = o * FIXEDPOINT_PREC;
-			return *this;
-		}
-	};
-	Vec3(long long x1, long long y1, long long z1, bool raw) : _x(0), _y(0), _z(0), x(_x), y(_y), z(_z) {
-		_x = x1;
-		_y = y1;
-		_z = z1;
-	}
-public:
-	fixedPoint x, y, z;
-	Vec3() :_x(0), _y(0), _z(0), x(_x), y(_y), z(_z) {}
-	Vec3(double x1, double y1, double z1) :_x(0), _y(0), _z(0), x(_x), y(_y), z(_z) {
-		x = x1;
-		y = y1;
-		z = z1;
-	}
-	Vec3(glm::dvec3 v) :_x(0), _y(0), _z(0), x(_x), y(_y), z(_z) {
-		x = v.x;
-		y = v.y;
-		z = v.z;
-	}
-	Vec3 operator=(const Vec3& o) {
-		_x = o._x;
-		_y = o._y;
-		_z = o._z;
-		return *this;
-	}
-	Vec3 operator+(Vec3 o) {
-		return Vec3(_x + o._x, _y + o._y, _z + o._z, 1);
-	}
-	Vec3 operator-(Vec3 o) {
-		return Vec3(_x - o._x, _y - o._y, _z - o._z, 1);
-	}
-	Vec3 operator*(double o) {
-		return Vec3(_x * o, _y * o, _z * o, 1);
-	}
-	Vec3 operator/(double o) {
-		return Vec3(_x / o, _y / o, _z / o, 1);
-	}
-	double sqMag() {
-		return (*this) * (*this);
-	}
-	double mag() {
-		return sqrt(sqMag());
-	}
-	double operator*(Vec3 o) {
-		return x * o.x + y * o.y + z * o.z;
-	}
-	Vec3 cross(glm::dvec3 o) {//used to determine orbital angular momentum
-		return Vec3(y * o.z - z * o.y, z * o.x - x * o.z, x * o.y - y * o.x);
-	}
-	glm::dvec3 downgrade() {//only downgrade if the result does not represent positions relative to the world origin
-		return glm::dvec3(x, y, z);
-	}
-};//actually still might not be enough
-*/
-/*class OrbitalElements {
-public:
-	double a, e, i, o, w, v;//v is mean anomaly at t=0
-	shared_ptr<Planet> p;
-	OrbitalElements(shared_ptr<Planet> p1, double a1, double e1, double i1, double o1, double w1, double v1);
-	double period();
-	double trueAnomaly(double t);
-	glm::dvec3 pos();
-	glm::dvec3 vel();
-	void update(double dt);
-};*/
 class Planet;
 class OrbitalElements;
 class Planet {
@@ -469,11 +387,14 @@ public:
 		}
 	}
 	void displayMode3() {
-		brush.setGlobalOrientation(angle);
+		brush.setGlobalOrientation(glm::dquat(1, 0, 0, 0));
 		brush.setGlobalPosition(0, 0, 0);
 		ofSetColor(255, 255, 255);
 		ofPushMatrix();
 		ofScale(1, 1, -1);
+		glm::mat4 matr = glm::toMat4(angle);
+		ofMultMatrix(matr);
+		ofTranslate(glm::vec3(-COM)*DM3_SCALE);
 		ofTexture t = atlas.getTexture();
 		t.bind();
 		brush.draw();
@@ -481,15 +402,30 @@ public:
 		ofPopMatrix();
 	}
 	void updateGrid() {
+		if (contents.size() == 0)throw "empty ship";
 		mass = 0;
-		COM = glm::dvec3(0, 0, 0);
+		COM = glm::dvec3(0, 0, 0);//TODO:Fix COM calculation
 		for (auto& ptr : contents) {
 			if (ptr.second == nullptr)continue;
 			mass += ptr.second->mass;
-			COM += keyPos(ptr.first) * ptr.second->mass;
+			COM += (keyPos(ptr.first)+glm::dvec3(0.5,0.5,0.5)) * ptr.second->mass;
 		}
-		//TODO
-		//blah blah blah inertial tensor blah blah
+		COM /= mass;
+		inertialTensor = glm::dmat3(0.0);
+		for (auto& ptr : contents) {
+			if (ptr.second == nullptr)continue;
+			glm::dvec3 pos = keyPos(ptr.first);
+			glm::dmat3 c(1.0 / 6);
+			//should also have side length squared but that is 1.mass is accounted for later
+			glm::dvec3 p = pos + glm::dvec3(0.5, 0.5, 0.5)-COM;
+			double x = p.x, y = p.y, z = p.z;
+			glm::dmat3 s(
+				glm::vec3(y * y + z * z, -x * y, -x * z),  // First row
+				glm::vec3(-y * x, x * x + z * z, -y * z),  // Second row
+				glm::vec3(-z * x, -z * y, x * x + y * y)   // Third row
+			);
+			inertialTensor += (c + s) * ptr.second->mass;
+		}
 		mesh.clear();
 		for (auto& ptr : contents) {
 			if (ptr.second == nullptr)continue;
@@ -552,10 +488,18 @@ public:
 	}
 	void updatePhysics(double dt) {
 		glm::dvec3 torque;
+		//torque = { 0.1,0,0 };
 		//TODO
 		avel += glm::inverse(inertialTensor) * torque * dt;
-		angle = angle * (0.5 * dt * glm::dquat(0.0,avel.x,avel.y,avel.z));
-		angle = glm::normalize(angle);
+		double l = glm::length(avel) * (dt / 2);
+		if (l != 0) {
+			glm::dvec3 n = glm::normalize(avel);
+			glm::dquat d(0, n.x, n.y, n.z);
+			d *= sin(l);
+			d.w = cos(l);
+			angle = d * angle;
+			angle = glm::normalize(angle);
+		}
 		glm::dvec3 acc;
 		position = position + velocity * dt + glm::dvec3(acc * (dt * dt / 2));
 		velocity = velocity + glm::dvec3(accel);//estimate(for drag and other speed related forces)

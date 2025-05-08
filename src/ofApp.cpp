@@ -13,9 +13,16 @@ void ofApp::setup(){
 	p.setItem(make_shared<GridElement>(t), 0, 1, 0);
 	//p.removeItem(0, 0, 0);
 }
-
+static constexpr double DT = 1.0/600;
+double remainingSimulation = 0.0;
 void ofApp::update(){
 	dragMap();
+	if (sceneDisplayed != 2) {
+		remainingSimulation += ofGetLastFrameTime();
+		for (; remainingSimulation > DT; remainingSimulation -= DT) {
+			p.updatePhysics(DT);
+		}
+	}
 }
 
 void ofApp::draw(){
@@ -42,6 +49,7 @@ void ofApp::draw(){
 		ofEnableDepthTest();
 		p.displayMode3();
 		ofDrawAxis(256);
+		//ofDrawArrow({0,0,0}, p.avel*100.0, 20.0);
 		ofDisableDepthTest();
 		camera.end();
 		break;
