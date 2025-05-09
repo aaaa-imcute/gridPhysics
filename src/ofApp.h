@@ -116,13 +116,22 @@ class Planet {
 public:
 	shared_ptr<OrbitalElements> o;
 	double gravity;//m^3/s^2
+	Planet(double g);
+	Planet(double g, shared_ptr<Planet> p1, double a1, double e1, double i1, double o1, double w1, double v1);
 	glm::dvec3 pos(double t);
 	glm::dvec3 vel(double t);
+	glm::dvec3 apos(double t);
+	glm::dvec3 avel(double t);
+	double SOI();
 };
 class OrbitalElements {
 public:
 	double a, e, i, o, w, v;//v is mean anomaly at t=0 NOT TRUE ANOMALY,o is LAN(capital omega)
 	shared_ptr<Planet> p;
+	OrbitalElements(shared_ptr<Planet> p1,glm::dvec3 r,glm::dvec3 V,double t) {
+		p = p1;
+		set(r, V, t);
+	}
 	OrbitalElements(shared_ptr<Planet> p1, double a1, double e1, double i1, double o1, double w1, double v1)
 		:p(p1), a(a1), e(e1), i(i1), o(o1), w(w1), v(v1) {};
 	double period() {
@@ -174,6 +183,12 @@ public:
 		return (pos(t+ep)-pos(t))/ep;
 		//yeah chat gpt keeps using the vis viva equation so here's my (practical) answer
 	}
+	glm::dvec3 apos(double t) {
+		return pos(t) + p->apos(t);
+	};
+	glm::dvec3 avel(double t) {
+		return vel(t) + p->avel(t);
+	};
 	void set(glm::dvec3 r, glm::dvec3 V, double t) {
 		//relative position and velocity
 		glm::dvec3 h = glm::cross(r, V), N(-h.y, h.x, 0);
@@ -196,15 +211,37 @@ public:
 			double F = 2 * atanh(tan(n / 2) * sqrt((e - 1) / (e + 1)));
 			M = e * sinh(F) - F;
 		}
-		v = M - t * meanMotion();
+		v = M - t * meanMotion();//TODO:Fix mean anomaly at epoch calculation
 	}
 };
+vector<shared_ptr<Planet>> planets = { make_shared<Planet>(Planet(3.5316e12)) };
+Planet::Planet(double g) {
+	gravity = g;
+}
+Planet::Planet(double g, shared_ptr<Planet> p1, double a1, double e1, double i1, double o1, double w1, double v1) {
+	gravity = g;
+	o = make_shared<OrbitalElements>(OrbitalElements(p1, a1, e1, i1, o1, w1, v1));
+};
 glm::dvec3 Planet::pos(double t) {
+	if (o == nullptr)return glm::dvec3(0, 0, 0);
 	return o->pos(t);
 }
 glm::dvec3 Planet::vel(double t) {
+	if (o == nullptr)return glm::dvec3(0, 0, 0);
 	return o->vel(t);
 }
+glm::dvec3 Planet::apos(double t) {
+	if (o == nullptr)return glm::dvec3(0, 0, 0);
+	return o->apos(t);
+}
+glm::dvec3 Planet::avel(double t) {
+	if (o == nullptr)return glm::dvec3(0, 0, 0);
+	return o->avel(t);
+}
+double Planet::SOI() {
+	if (o == nullptr)return std::numeric_limits<double>::infinity();
+	return o->a * pow(gravity / o->p->gravity, 0.4);
+};
 class GridElement {
 public:
 	GridElement(string t, double m) {
@@ -324,15 +361,24 @@ shared_ptr<GridElement> selectedPart;//sceneDisplayed==2
 glm::dvec3 selectedPos;
 class PhysicsGrid {
 public:
+	shared_ptr<Planet> soi;
 	glm::dvec3 position;//need high-precision
 	glm::dvec3 velocity;//doesn't need high-precision but unfortunately glm::dvec3 are floats
 	//bottleneck on fixedpoint_prec is the handling of small accelerations
 	glm::dvec3 accel;//verlet internal
 	glm::dquat angle;
 	glm::dvec3 avel;//along axis of rotation,magnitude is amount and direction of rotation
-	PhysicsGrid(shared_ptr<GridElement> root, glm::dvec3 p, glm::dvec3 v) {
+	OrbitalElements orbit;
+	PhysicsGrid(shared_ptr<GridElement> root, glm::dvec3 p, glm::dvec3 v,shared_ptr<Planet> planet,double t)
+	:orbit(planet,p,v,t){
+		//soi = planets[0];//assuming this is the one holding the global frame of reference
+		//if (soi->o != nullptr)throw "hey wrong order of planets";
+		soi = planet;
 		position = p;
 		velocity = v;
+		accel = { 0,0,0 };
+		avel = { 0,0,0 };
+		angle = { 1,0,0,0 };
 		setItem(root, 0, 0, 0);
 		brush = { mesh };
 		updateGrid();
@@ -486,7 +532,37 @@ public:
 		brush = { mesh };
 
 	}
-	void updatePhysics(double dt) {
+	void updatePhysics(double t, double dt) {
+		/*
+		set<shared_ptr<Planet>> p;
+		for (auto& ptr : planets) {
+			glm::dvec3 pos = ptr->pos(t);
+			if (glm::length(position - pos) < ptr->SOI()) {
+				p.insert(ptr);
+			}
+		}
+		*/
+		glm::dvec3 gp = position + soi->apos(t);
+		shared_ptr<Planet> p;
+		double dist = std::numeric_limits<double>::infinity();
+		for (auto& ptr : planets) {
+			double nd = glm::length(ptr->apos(t) - gp);
+			if (nd < dist) {
+				dist = nd;
+				p = ptr;
+			}
+		}
+		while (dist > p->SOI()) {
+			p = p->o->p;
+			dist = glm::length(p->apos(t) - gp);
+		}
+		if (soi != p) {
+			position = gp - p->apos(t);
+			velocity += soi->avel(t) - p->avel(t);
+			soi = p;
+			orbit.p = p;
+			orbit.set(position, velocity, t);
+		}
 		glm::dvec3 torque;
 		//torque = { 0.1,0,0 };
 		//TODO
@@ -502,10 +578,12 @@ public:
 		}
 		glm::dvec3 acc;
 		position = position + velocity * dt + glm::dvec3(acc * (dt * dt / 2));
-		velocity = velocity + glm::dvec3(accel);//estimate(for drag and other speed related forces)
+		velocity = velocity + accel * dt;//estimate(for drag and other speed related forces)
 		//TODO
-		velocity = velocity + glm::dvec3((acc - accel) / 2.0);//factor in actual acceleration
+		acc += position * (-soi->gravity / pow(glm::length(position),3));//gravity
+		velocity = velocity + (acc - accel) * (dt / 2.0);//factor in actual acceleration
 		accel = acc;
+		orbit.set(position, velocity, t);
 	}
 private:
 	unordered_map<string,shared_ptr<GridElement>> contents;

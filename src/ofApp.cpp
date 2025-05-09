@@ -2,7 +2,9 @@
 
 GridElement root("test", 1);
 GridElement t("test2", 1);
-PhysicsGrid p(make_shared<GridElement>(root), {}, { 0,0,0 });
+PhysicsGrid p(make_shared<GridElement>(root), {680000,0,0}, { 0,0,2278.9316 },planets[0],0);
+//more precise orbital velocity than 2279 so I don't confuse actual errors with
+//p.orbit.a being about 680040
 void ofApp::setup(){
 	//ofSetFrameRate(60);
 	//ofSetVerticalSync(true);
@@ -11,16 +13,17 @@ void ofApp::setup(){
 	createAtlas();
 	t.rotateRightFace();
 	p.setItem(make_shared<GridElement>(t), 0, 1, 0);
-	//p.removeItem(0, 0, 0);
 }
 static constexpr double DT = 1.0/600;
 double remainingSimulation = 0.0;
+double totalTime = 0.0;
 void ofApp::update(){
 	dragMap();
 	if (sceneDisplayed != 2) {
 		remainingSimulation += ofGetLastFrameTime();
 		for (; remainingSimulation > DT; remainingSimulation -= DT) {
-			p.updatePhysics(DT);
+			p.updatePhysics(totalTime,DT);
+			totalTime += DT;
 		}
 	}
 }
