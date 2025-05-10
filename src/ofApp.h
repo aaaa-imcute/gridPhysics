@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ofMain.h"
-
+#include "easyCam.cpp"
 unordered_map<int, bool> keys;
 unordered_map<int, bool> mouse;
 glm::dvec2 untransform2D(glm::dvec2 vec) {
@@ -13,7 +13,9 @@ glm::dvec2 untransform2D(glm::dvec2 vec) {
 glm::dvec2 mousePos, pmousePos;
 glm::dvec2 mapPos;//sceneDisplayed==0||sceneDisplayed==2
 double mapScale = 16;
-ofEasyCam camera;//sceneDisplayed==1||sceneDisplayed==3
+easyCam camera;//sceneDisplayed==3
+glm::dvec3 orbitPos;//sceneDisplayed==1
+double orbitScale=1.0/6000000;
 vector<string> faceNames = { "right","left","top","bottom","front","back" };
 unordered_map<string, ofImage> imageCache;
 ofImage loadImage(string img) {
@@ -69,6 +71,7 @@ void createAtlas() {
 	walkTextures(".\\textures\\", x, y);
 }
 void drawLine(glm::dvec2 p1, glm::dvec2 p2, float width) {//replacement method for line width
+	//expects color already set
 	ofPushMatrix();
 	ofTranslate(p1);
 	ofRotateRad(atan2f(p2.y - p1.y, p2.x - p1.x));
@@ -76,6 +79,7 @@ void drawLine(glm::dvec2 p1, glm::dvec2 p2, float width) {//replacement method f
 	ofPopMatrix();
 }
 void drawFaceNormal2D(glm::dvec3 v, glm::dvec2 pos) {//sceneDisplay==2
+	//expects color already set
 	glm::dvec2 d(-v.z, -v.x);
 	if (abs(v.y) < 0.01) {
 		drawLine(pos, pos + d * 16,1);
@@ -116,13 +120,15 @@ class Planet {
 public:
 	shared_ptr<OrbitalElements> o;
 	double gravity;//m^3/s^2
-	Planet(double g);
-	Planet(double g, shared_ptr<Planet> p1, double a1, double e1, double i1, double o1, double w1, double v1);
+	double radius;
+	Planet(double g, double r);
+	Planet(double g, double r, shared_ptr<Planet> p1, double a1, double e1, double i1, double o1, double w1, double v1);
 	glm::dvec3 pos(double t);
 	glm::dvec3 vel(double t);
 	glm::dvec3 apos(double t);
 	glm::dvec3 avel(double t);
 	double SOI();
+	void displayMode1(double t);
 };
 class OrbitalElements {
 public:
@@ -171,12 +177,17 @@ public:
 		glm::dmat4 rw = glm::rotate(glm::dmat4(1.0f), glm::radians(w), glm::dvec3(0.0f, 0.0f, 1.0f));
 		return ro * ri * rw;
 	}
-	glm::dvec3 pos(double t) {
-		double n = trueAnomaly(t);
+	glm::dvec3 tpos(double n) {
+		//input:true anomaly
 		double r = a * (1 - e * e) / (1 + e * cos(n));
-		glm::dvec4 ret(r * sin(n), r * cos(n), 0.0,1.0);
+		glm::dvec4 ret(r * sin(n), r * cos(n), 0.0, 1.0);
 		ret = mat() * ret;
 		return glm::dvec3(ret);
+	}
+	glm::dvec3 pos(double t) {
+		//input:time elapsed since t=0
+		double n = trueAnomaly(t);
+		return tpos(n);
 	}
 	glm::dvec3 vel(double t) {
 		double ep = 1.0/60;
@@ -206,20 +217,40 @@ public:
 		double M;
 		if (e < 1) {
 			M = atan2(sqrt(1 - e * e) * sin(n), e + cos(n)) - e * sqrt(1 - e * e) * sin(n) / (1 + e * cos(n));
+			/*double cosE = (e + cos(n)) / (1 + e * cos(n));
+			double sinE = sqrt(1 - e * e) * sin(n) / (1 + e * cos(n));
+			double E_anom = atan2(sinE, cosE);
+			M = E_anom - e * sin(E_anom);*/
 		}
 		else {
 			double F = 2 * atanh(tan(n / 2) * sqrt((e - 1) / (e + 1)));
 			M = e * sinh(F) - F;
+			/*double coshF = (e + cos(n)) / (1 + e * cos(n));
+			double sinhF = sqrt(e * e - 1) * sin(n) / (1 + e * cos(n));
+			double F = asinh(sinhF);
+			M = e * sinh(F) - F;*/
 		}
-		v = M - t * meanMotion();//TODO:Fix mean anomaly at epoch calculation
+		v = M;// - t * meanMotion();//TODO:Fix mean anomaly at epoch calculation
+	}
+	void displayMode1(double t) {
+		double div = 2 * PI / 256;
+		ofNoFill();
+		ofSetColor(0, 255, 0);
+		ofBeginShape();
+		for (double i = 0; i < 2 * PI; i += div) {
+			ofVertex(glm::vec3((tpos(i) + p->apos(t) - orbitPos) * orbitScale));
+		}
+		ofEndShape(true);
 	}
 };
-vector<shared_ptr<Planet>> planets = { make_shared<Planet>(Planet(3.5316e12)) };
-Planet::Planet(double g) {
+vector<shared_ptr<Planet>> planets = { make_shared<Planet>(Planet(3.5316e12,600000)) };
+Planet::Planet(double g, double r) {
 	gravity = g;
+	radius = r;
 }
-Planet::Planet(double g, shared_ptr<Planet> p1, double a1, double e1, double i1, double o1, double w1, double v1) {
+Planet::Planet(double g, double r, shared_ptr<Planet> p1, double a1, double e1, double i1, double o1, double w1, double v1) {
 	gravity = g;
+	radius = r;
 	o = make_shared<OrbitalElements>(OrbitalElements(p1, a1, e1, i1, o1, w1, v1));
 };
 glm::dvec3 Planet::pos(double t) {
@@ -242,6 +273,16 @@ double Planet::SOI() {
 	if (o == nullptr)return std::numeric_limits<double>::infinity();
 	return o->a * pow(gravity / o->p->gravity, 0.4);
 };
+void Planet::displayMode1(double t) {
+	glm::dvec3 p = (apos(t) - orbitPos) * orbitScale;
+	ofPushMatrix();
+	ofTranslate(glm::vec3(p));
+	ofSetColor(127, 127, 127);//TODO
+	ofDrawSphere(radius * orbitScale);
+	ofTranslate(-glm::vec3(p));
+	ofPopMatrix();
+	if(o!=nullptr)o->displayMode1(t);
+}
 class GridElement {
 public:
 	GridElement(string t, double m) {
@@ -405,6 +446,16 @@ public:
 	void removeItem(glm::dvec3 v) {
 		contents.erase(keyString(v));
 		updateGrid();
+	}
+	void displayMode1(double t) {
+		glm::dvec3 pos = (orbit.apos(t) - orbitPos) * orbitScale;
+		ofPushMatrix();
+		ofTranslate(glm::vec3(pos));//draw ship
+		ofSetColor(127, 127, 127);
+		ofDrawSphere(16);
+		ofTranslate(-glm::vec3(pos));
+		ofPopMatrix();
+		orbit.displayMode1(t);
 	}
 	void displayMode2(int y) {
 		for (auto& ptr : contents) {
