@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ofMain.h"
+/*
 static const unsigned long doubleclickTime = 200;
 class easyCam : public ofCamera {//can of worms.
 public:
@@ -396,3 +397,4 @@ private:
 	};
 	std::vector<interaction> interactions;
 };
+*/

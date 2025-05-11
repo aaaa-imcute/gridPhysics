@@ -1,7 +1,9 @@
 #pragma once
 
 #include "ofMain.h"
-#include "easyCam.cpp"
+double ffmod(double x, double y) {
+	return fmod(fmod(x, y) + y, y);
+}
 unordered_map<int, bool> keys;
 unordered_map<int, bool> mouse;
 glm::dvec2 untransform2D(glm::dvec2 vec) {
@@ -11,11 +13,41 @@ glm::dvec2 untransform2D(glm::dvec2 vec) {
 	return glm::dvec4(temp.x, temp.y, 0, 1) * inverse;
 }
 glm::dvec2 mousePos, pmousePos;
+class easyCam : public ofCamera {
+public:
+	glm::dvec3 angle;//pitch yaw radius
+	glm::dvec3 pos;
+	easyCam() {
+		angle = { 0,0,1000 };
+		updateOrientation();
+	}
+	void update() {
+		if (!mouse[2])return;
+		glm::dvec2 rel = mousePos - pmousePos;
+		angle.x += -rel.y*PI/ofGetHeight();
+		angle.y += -rel.x*PI*2/ofGetWidth();
+		angle.x = ofClamp(angle.x, -PI / 2, PI / 2);
+		updateOrientation();
+	}
+	void mouseScrolled(double sx,double sy) {
+		angle.z += -sy * 50;
+		updateOrientation();
+	}
+	void updateOrientation() {
+		glm::dquat q;
+		q = glm::rotate(q, angle.y, { 0,1,0 });
+		q = glm::rotate(q, angle.x, { 1,0,0 });
+		glm::dvec3 p = { 0,0,angle.z };
+		p = glm::rotate(q, p);
+		setGlobalOrientation(q);
+		setGlobalPosition(pos + p);
+	}
+};
 glm::dvec2 mapPos;//sceneDisplayed==0||sceneDisplayed==2
 double mapScale = 16;
-easyCam camera;//sceneDisplayed==3
+easyCam camera;//sceneDisplayed==1||sceneDisplayed==3
 glm::dvec3 orbitPos;//sceneDisplayed==1
-double orbitScale=1.0/6000000;
+double orbitScale=1.0/600;
 vector<string> faceNames = { "right","left","top","bottom","front","back" };
 unordered_map<string, ofImage> imageCache;
 ofImage loadImage(string img) {
@@ -151,6 +183,7 @@ public:
 	}
 	double trueAnomaly(double t) {
 		double M = v + meanMotion() * t;
+		M = ffmod(M, 2 * PI);
 		if (e < 1) {
 			double E = M + e * sin(M) + 0.5 * e * e * sin(2 * M);
 			double dE = 10000;
@@ -161,7 +194,7 @@ public:
 			return 2 * atan2(sqrt(1 + e) * sin(E / 2), sqrt(1 - e) * cos(E / 2));
 		}
 		if (e > 1) {
-			double H = ofSign(M) * log(2 * abs(M) / e + 1.8);
+			double H = asinh(M / e);//ofSign(M) * log(2 * abs(M) / e + 1.8);
 			double dH = 10000;
 			while (abs(dH) > 1e-16) {
 				dH = (e * sinh(H) - H - M) / (1 - e * cosh(H));
@@ -172,15 +205,16 @@ public:
 		throw "hey I'm not programming that case";
 	}
 	glm::dmat4 mat() {
-		glm::dmat4 ri = glm::rotate(glm::dmat4(1.0f), glm::radians(i), glm::dvec3(1.0, 0.0, 0.0));
-		glm::dmat4 ro = glm::rotate(glm::dmat4(1.0f), glm::radians(o), glm::dvec3(0.0f, 0.0f, 1.0f));
-		glm::dmat4 rw = glm::rotate(glm::dmat4(1.0f), glm::radians(w), glm::dvec3(0.0f, 0.0f, 1.0f));
-		return ro * ri * rw;
+		glm::dquat q =
+			glm::angleAxis(w, glm::dvec3(0, 1, 0)) *
+			glm::angleAxis(i, glm::dvec3(1, 0, 0)) *
+			glm::angleAxis(o, glm::dvec3(0, 1, 0));
+		return glm::mat4_cast(q);
 	}
 	glm::dvec3 tpos(double n) {
 		//input:true anomaly
 		double r = a * (1 - e * e) / (1 + e * cos(n));
-		glm::dvec4 ret(r * sin(n), r * cos(n), 0.0, 1.0);
+		glm::dvec4 ret(r * cos(n), r * sin(n),0.0, 1.0);
 		ret = mat() * ret;
 		return glm::dvec3(ret);
 	}
@@ -210,27 +244,22 @@ public:
 		i = acos(h.z / glm::length(h));
 		o = acos(N.x / glm::length(N));
 		if (N.y < 0)o = 2 * PI - o;
-		w = acos(glm::dot(N, E) / glm::length(glm::dot(N, E)));
+		w = acos(glm::dot(N, E) / (glm::length(N) * glm::length(E)));
 		if (E.z < 0)w = 2 * PI - w;
-		double n = acos(glm::dot(E, r) / glm::length(glm::dot(E, r)));
+		double n = acos(glm::dot(E, r) / (glm::length(E) * glm::length(r)));
 		if (glm::dot(r, V) < 0)n = 2 * PI - n;
 		double M;
 		if (e < 1) {
-			M = atan2(sqrt(1 - e * e) * sin(n), e + cos(n)) - e * sqrt(1 - e * e) * sin(n) / (1 + e * cos(n));
-			/*double cosE = (e + cos(n)) / (1 + e * cos(n));
-			double sinE = sqrt(1 - e * e) * sin(n) / (1 + e * cos(n));
-			double E_anom = atan2(sinE, cosE);
-			M = E_anom - e * sin(E_anom);*/
+			//M = atan2(sqrt(1 - e * e) * sin(n), e + cos(n)) - e * sqrt(1 - e * e) * sin(n) / (1 + e * cos(n));
+			double E = atan2(sqrt(1 - e * e) * sin(n), e + cos(n));
+			M = E - e * sin(E);
 		}
 		else {
 			double F = 2 * atanh(tan(n / 2) * sqrt((e - 1) / (e + 1)));
 			M = e * sinh(F) - F;
-			/*double coshF = (e + cos(n)) / (1 + e * cos(n));
-			double sinhF = sqrt(e * e - 1) * sin(n) / (1 + e * cos(n));
-			double F = asinh(sinhF);
-			M = e * sinh(F) - F;*/
 		}
-		v = M;// - t * meanMotion();//TODO:Fix mean anomaly at epoch calculation
+		v = M - meanMotion() * t;
+		v = ffmod(v, 2 * PI);
 	}
 	void displayMode1(double t) {
 		double div = 2 * PI / 256;
@@ -277,6 +306,7 @@ void Planet::displayMode1(double t) {
 	glm::dvec3 p = (apos(t) - orbitPos) * orbitScale;
 	ofPushMatrix();
 	ofTranslate(glm::vec3(p));
+	ofFill();
 	ofSetColor(127, 127, 127);//TODO
 	ofDrawSphere(radius * orbitScale);
 	ofTranslate(-glm::vec3(p));
@@ -451,6 +481,7 @@ public:
 		glm::dvec3 pos = (orbit.apos(t) - orbitPos) * orbitScale;
 		ofPushMatrix();
 		ofTranslate(glm::vec3(pos));//draw ship
+		ofFill();
 		ofSetColor(127, 127, 127);
 		ofDrawSphere(16);
 		ofTranslate(-glm::vec3(pos));
@@ -475,6 +506,7 @@ public:
 		}
 		if (selectedPart != nullptr) {
 			glm::dvec2 sPos(-selectedPos.z * 16, -selectedPos.x * 16);
+			ofFill();
 			ofSetColor(0, 0, 255);
 			drawFaceNormal2D(selectedPart->front(), sPos + glm::dvec2(8, 8));
 			ofSetColor(0, 255, 0);

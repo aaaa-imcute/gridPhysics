@@ -31,14 +31,12 @@ void ofApp::update(){
 void ofApp::draw(){
 	pmousePos=mousePos;
 	mousePos=glm::vec2(ofGetMouseX(), ofGetMouseY());
+	if(sceneDisplayed == 1 || sceneDisplayed == 3)camera.update();
 	if (keys['1'])sceneDisplayed = 1;
 	if (keys['2'])sceneDisplayed = 2;
 	if (keys['3'])sceneDisplayed = 3;
-	if (sceneDisplayed == 1 || sceneDisplayed == 3) camera.enableMouseInput();
-	else camera.disableMouseInput();
 	switch(sceneDisplayed){
 	case 1:
-		camera.disableScroll = true;
 		camera.begin();
 		ofEnableDepthTest();
 		p.displayMode1(totalTime);
@@ -61,7 +59,6 @@ void ofApp::draw(){
 		ofPopMatrix();
 		break;
 	case 3:
-		camera.disableScroll = false;
 		camera.begin();
 		ofEnableDepthTest();
 		p.displayMode3();
@@ -114,7 +111,7 @@ void ofApp::mouseExited(int x, int y){
 void ofApp::mouseScrolled(int x, int y, float sx, float sy) {
 	if (sceneDisplayed == 0 || sceneDisplayed == 2)mapScale *= pow(2, (sy / 4));
 	if (sceneDisplayed == 1)orbitScale *= pow(2, (sy / 4));
-	if (sceneDisplayed == 3)camera.dolly(-sy * 50);
+	if (sceneDisplayed == 3)camera.mouseScrolled(sx, sy);
 }
 
 void ofApp::windowResized(int w, int h){
