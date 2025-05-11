@@ -183,11 +183,11 @@ public:
 	}
 	double trueAnomaly(double t) {
 		double M = v + meanMotion() * t;
-		M = ffmod(M, 2 * PI);
 		if (e < 1) {
-			double E = M + e * sin(M) + 0.5 * e * e * sin(2 * M);
+			M = ffmod(M, 2 * PI);
+			double E = M + 0.5 * e * sin(M);//M + e * sin(M) + 0.5 * e * e * sin(2 * M);
 			double dE = 10000;
-			while (abs(dE) > 1e-16) {
+			while (abs(dE) > 1e-12) {
 				dE = (E - e * sin(E) - M) / (e * cos(E) - 1);
 				E += dE;
 			}
@@ -196,7 +196,7 @@ public:
 		if (e > 1) {
 			double H = asinh(M / e);//ofSign(M) * log(2 * abs(M) / e + 1.8);
 			double dH = 10000;
-			while (abs(dH) > 1e-16) {
+			while (abs(dH) > 1e-12) {
 				dH = (e * sinh(H) - H - M) / (1 - e * cosh(H));
 				H += dH;
 			}
@@ -259,17 +259,18 @@ public:
 			M = e * sinh(F) - F;
 		}
 		v = M - meanMotion() * t;
-		v = ffmod(v, 2 * PI);
+		if(e<1)v = ffmod(v, 2 * PI);
 	}
 	void displayMode1(double t) {
 		double div = 2 * PI / 256;
 		ofNoFill();
 		ofSetColor(0, 255, 0);
 		ofBeginShape();
-		for (double i = 0; i < 2 * PI; i += div) {
+		double th = PI - (e > 1) * PI / 2;
+		for (double i = -th; i <= th; i += div) {
 			ofVertex(glm::vec3((tpos(i) + p->apos(t) - orbitPos) * orbitScale));
 		}
-		ofEndShape(true);
+		ofEndShape(e<1);
 	}
 };
 vector<shared_ptr<Planet>> planets = { make_shared<Planet>(Planet(3.5316e12,600000)) };

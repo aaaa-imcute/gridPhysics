@@ -2,7 +2,7 @@
 
 GridElement root("test", 1);
 GridElement t("test2", 1);
-PhysicsGrid p(make_shared<GridElement>(root), {680000,0,0}, { 0,0,2278.9316 },planets[0],0);
+PhysicsGrid p(make_shared<GridElement>(root), {680000,0,0}, { 0,0,4000/*2278.9316*/ },planets[0],0);
 //more precise orbital velocity than 2279 so I don't confuse actual errors with
 //p.orbit.a being about 680040
 void ofApp::setup(){
