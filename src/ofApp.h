@@ -287,6 +287,7 @@ public:
 		}
 	}
 	double get(double th, double ph, int level = -1) {
+		//returns relative altitude not distance to planet center,need to +1 then *radius
 		if (level == -1 || level > coeff.size())level = coeff.size();
 		double ret = 0;
 		for (int l = 0; l < level; l++) {
@@ -304,7 +305,7 @@ public:
 		glm::dvec3 norm = ref / r;
 		double lMin = r - 1, lMax = r + 1;
 		if (lMin < 0)throw "camera in planet";
-		int points = 16;
+		int points = 64;
 		vector<glm::dvec3> vertices;
 		int i = 0;
 		glm::dvec3 T, B;
@@ -315,29 +316,31 @@ public:
 			double radius = sqrt(1 - (r - dist) * (r - dist));
 			double end = 0;
 			if ((i++) % 2 == 1)end += PI / points;
-			for (double th = end; th < 2 * PI + end; th += 2 * PI / points) {
+			double th = end;
+			for (int j = 0; j < points;j++) {
 				glm::dvec3 V = norm * (r - dist);
 				V += (cos(th) * T + sin(th) * B) * radius;
 				//V = ref + V;
 				V = glm::normalize(V);
 				V *= get(atan2(V.y, V.x), acos(V.z))+1;
 				vertices.push_back(V);
+				th += 2 * PI / points;
 			}
 			if (dist == lMax)break;
 		}
-		for (int i = 0; i < (int)vertices.size() / 16 - 1; i++) {
-			for (int j = 0; j < 16; j++) {
+		for (int i = 0; i < (int)vertices.size() / points - 1; i++) {
+			for (int j = 0; j < points; j++) {
 				int a, b, c;
-				a = i * 16 + j;
-				b = i * 16 + (j + 1) % 16;
-				c = (i + 1) * 16 + (j + i % 2) % 16;
+				a = i * points + j;
+				b = i * points + ffmod(j + 1, points);
+				c = (i + 1) * points + ffmod(j + i % 2,points);
 				//if the current layer is even then +1 otherwise don't +1
 				//this is for the layer shifting thing
 				ofMesh t = getTriangleMesh(vertices[a], vertices[b], vertices[c]);
 				m.append(t);
-				a = i * 16 + j;
-				b = (i + 1) * 16 + (j + i % 2) % 16;
-				c = (i + 1) * 16 + ffmod(j + i % 2 - 1,16);
+				a = i * points + j;
+				b = (i + 1) * points + ffmod(j + i % 2, points);
+				c = (i + 1) * points + ffmod(j + i % 2 - 1, points);
 				t = getTriangleMesh(vertices[a], vertices[b], vertices[c]);
 				m.append(t);
 			}
@@ -521,14 +524,14 @@ void Planet::displayMode1(double t) {
 	ref /= radius*orbitScale;
 	//ref = { 0,0,1.001 };
 	ofSetColor(127, 127, 127);//TODO
-	mesh.clear();
-	mesh = terrain.mesh(ref,2);
+	mesh.clear();//probably superfluous
+	mesh = terrain.mesh(ref,1.1);
 	of3dPrimitive brush = { mesh };
 	brush.setScale(radius*orbitScale/DM3_SCALE);
 	brush.draw();
 	//brush.drawWireframe();
-	//brush.drawNormals(100, true);
-	ofTranslate(-glm::vec3(p));
+	//brush.drawNormals(10, true);
+	ofTranslate(-glm::vec3(p));//superfluous but i'll keep it here because why not
 	ofPopMatrix();
 	if(o!=nullptr)o->displayMode1(t);
 }

@@ -11,7 +11,7 @@ void ofApp::setup(){
 	ofDisableAntiAliasing();
 	ofDisableBlendMode();
 	createAtlas();
-	planets[0]->terrain.generate(0, 5, 0.5, 1.5);
+	planets[0]->terrain.generate(0, 5, 0.1, 1.5);
 	//planets[0]->mesh = planets[0]->terrain.mesh({0,0,1},2);
 	t.rotateRightFace();
 	p.setItem(make_shared<GridElement>(t), 0, 1, 0);
