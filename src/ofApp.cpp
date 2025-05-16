@@ -11,6 +11,8 @@ void ofApp::setup(){
 	ofDisableAntiAliasing();
 	ofDisableBlendMode();
 	createAtlas();
+	planets[0]->terrain.generate(0, 5, 0.5, 1.5);
+	//planets[0]->mesh = planets[0]->terrain.mesh({0,0,1},2);
 	t.rotateRightFace();
 	p.setItem(make_shared<GridElement>(t), 0, 1, 0);
 }
@@ -27,7 +29,6 @@ void ofApp::update(){
 		}
 	}
 }
-
 void ofApp::draw(){
 	pmousePos=mousePos;
 	mousePos=glm::vec2(ofGetMouseX(), ofGetMouseY());
@@ -43,7 +44,7 @@ void ofApp::draw(){
 		for (auto& ptr : planets) {
 			ptr->displayMode1(totalTime);
 		}
-		ofDrawAxis(256);
+		//ofDrawAxis(256);
 		ofDisableDepthTest();
 		camera.end();
 		break;

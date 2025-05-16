@@ -125,8 +125,36 @@ void drawFaceNormal2D(glm::dvec3 v, glm::dvec2 pos) {//sceneDisplay==2
 	}
 }
 static constexpr double DM3_SCALE = 256;
-ofMesh getRectangleMesh(glm::dvec3 pos, glm::dvec3 width, glm::dvec3 height, glm::dvec2 apos, glm::dvec2 aw, glm::dvec2 ah) {
+ofMesh getTriangleMesh(glm::dvec3 a, glm::dvec3 b, glm::dvec3 c) {
 	double scale = DM3_SCALE;
+	glm::dvec3 normal = glm::cross(c - b, a - b);
+	ofMesh m;
+	m.addVertex(a * scale);
+	m.addVertex(b * scale);
+	m.addVertex(c * scale);
+	for (int i = 0; i < 3; i++)m.addNormal(normal);
+	m.addTriangle(0, 1, 2);
+	return m;
+}
+ofMesh getTriangleMesh(glm::dvec3 a, glm::dvec3 b, glm::dvec3 c, glm::dvec2 aa, glm::dvec2 ab, glm::dvec2 ac) {
+	/*double scale = DM3_SCALE;
+	glm::dvec3 normal = glm::cross(c - b, a - b);
+	ofMesh m;
+	m.addVertex(a * scale);
+	m.addTexCoord(aa);
+	m.addVertex(b * scale);
+	m.addTexCoord(ab);
+	m.addVertex(c * scale);
+	m.addTexCoord(ac);
+	for (int i = 0; i < 3; i++)m.addNormal(normal);
+	m.addTriangle(0, 1, 2);
+	return m;*/
+	ofMesh m = getTriangleMesh(a, b, c);
+	m.addTexCoords({ aa,ab,ac });
+	return m;
+}
+ofMesh getRectangleMesh(glm::dvec3 pos, glm::dvec3 width, glm::dvec3 height, glm::dvec2 apos, glm::dvec2 aw, glm::dvec2 ah) {
+	/*double scale = DM3_SCALE;
 	glm::dvec3 normal = glm::cross(height, width);
 	ofMesh m;
 	m.addVertex(pos * scale);
@@ -144,8 +172,179 @@ ofMesh getRectangleMesh(glm::dvec3 pos, glm::dvec3 width, glm::dvec3 height, glm
 	for (int i = 0; i < 6; i++)m.addNormal(normal);
 	m.addTriangle(0, 1, 2);
 	m.addTriangle(3, 4, 5);
+	return m;*/
+	ofMesh m, n;
+	m = getTriangleMesh(pos, pos + height, pos + width, apos, apos + ah, apos + aw);
+	n = getTriangleMesh(pos + width + height, pos + width, pos + height, apos + aw + ah, apos + aw, apos + ah);
+	m.append(n);
 	return m;
 }
+double legendrePoly(int n, double x) {
+	/*
+	if (n == 0)return 1;
+	if (n == 1)return x;
+	return ((2 * n - 1) * x * legendre(n - 1, x) - (n - 1) * legendre(n - 2, x)) / n;
+	*///don't do this,too slow
+	//this should work
+	if (n == 0)return 1;
+	if (n == 1)return x;
+	double l = 0, l1 = x, l2 = 1;
+	//0 for "0% we are going to use uninitialized memory at this branch without the 0"
+	for (int i = 2; i <= n; i++) {
+		l = ((2 * i - 1) * x * l1 - (i - 1) * l2) / i;
+		l2 = l1;
+		l1 = l;
+	}
+	return l;
+}
+double associatedLegendre(int l, int m, double x) {
+	m = abs(m);
+	if (m > l) return 0;
+
+	double pmm = 1.0;
+	if (m > 0) {
+		double somx2 = sqrt((1.0 - x) * (1.0 + x));
+		double fact = 1.0;
+		for (int i = 1; i <= m; i++) {
+			pmm *= -fact * somx2;
+			fact += 2.0;
+		}
+	}
+
+	if (l == m) return pmm;
+	double pmmp1 = x * (2 * m + 1) * pmm;
+	if (l == m + 1) return pmmp1;
+
+	double pll = 0;
+	for (int ll = m + 2; ll <= l; ++ll) {
+		pll = ((2 * ll - 1) * x * pmmp1 - (ll + m - 1) * pmm) / (ll - m);
+		pmm = pmmp1;
+		pmmp1 = pll;
+	}
+	return pll;
+}
+double factorial(int i) {
+	return tgamma(i + 1);
+	double ret = 1;
+	for (int j = 1; j <= i; j++) {
+		ret *= j;
+	}
+	return ret;
+}
+double sphericalNormalization(int l, int m) {
+	return sqrt((2 * l + 1) / (4 * PI) * factorial(l - m) / factorial(l + m));
+}
+/*double sphericalHarmonics(int l, int m, double th, double ph) {
+	double n = sphericalNormalization(l, abs(m));
+	double p = legendrePoly(abs(m), cos(th));
+	if (m == 0)return n * p;
+	if (m > 0)return sqrt(2) * n * cos(m * ph) * p;
+	return sqrt(2) * n * sin(-m * ph) * p;
+}*/
+double sphericalHarmonics(int l, int m, double th, double ph) {
+	int abs_m = abs(m);
+	double norm = sqrt((2.0 * l + 1.0) / (4.0 * PI) * factorial(l - abs_m) / factorial(l + abs_m));
+	double plm = associatedLegendre(l, abs_m, cos(th));
+	if (m == 0) return norm * plm;
+	if (m > 0) return sqrt(2.0) * norm * plm * cos(m * ph);
+	else       return sqrt(2.0) * norm * plm * sin(-m * ph);
+}
+void make_orthonormal_basis(const glm::dvec3& N, glm::dvec3& T, glm::dvec3& B) {
+	/*if (N.z < -0.999999f) {
+		// Special case to avoid division by zero
+		T = glm::dvec3(0, -1, 0);
+		B = glm::dvec3(-1, 0, 0);
+	}
+	else {
+		double a = 1.0f / (1.0f + N.z);
+		double b = -N.x * N.y * a;
+		T = glm::dvec3(1.0f - N.x * N.x * a, b, -N.x);
+		B = glm::dvec3(b, 1.0f - N.y * N.y * a, -N.y);
+	}*/
+	// N must be normalized
+	if (fabs(N.x) > fabs(N.z)) {
+		T = glm::normalize(glm::dvec3(-N.y, N.x, 0.0));
+	}
+	else {
+		T = glm::normalize(glm::dvec3(0.0, -N.z, N.y));
+	}
+	B = glm::cross(N, T);
+}
+class Terrain {
+public:
+	vector<vector<double>> coeff;
+	void generate(unsigned int seed, int L,double A,double a) {
+		coeff.clear();
+		//seed fineness amplitude(ratio of mountains to planet radius) smoothness(1.5 to 4)
+		mt19937 rng(seed);
+		for (int l = 0; l <= L; l++) {
+			vector<double> temp = {};
+			for (int m = -l; m <= l; m++) {
+				normal_distribution<double> d(0, A / pow(1 + l, a));
+				temp.push_back(d(rng));
+			}
+			coeff.push_back(temp);
+		}
+	}
+	double get(double th, double ph, int level = -1) {
+		if (level == -1 || level > coeff.size())level = coeff.size();
+		double ret = 0;
+		for (int l = 0; l < level; l++) {
+			for (int m = -l; m <= l; m++) {
+				ret += sphericalHarmonics(l, m, th, ph) * coeff[l][m + l];
+			}
+		}
+		return ret;
+	}
+	ofMesh mesh(glm::dvec3 ref,double prec) {
+		//ref is relative to the planet,scaled down by the radius
+		//(so is the resulting mesh)
+		ofMesh m;
+		double r = glm::length(ref);
+		glm::dvec3 norm = ref / r;
+		double lMin = r - 1, lMax = r + 1;
+		if (lMin < 0)throw "camera in planet";
+		int points = 16;
+		vector<glm::dvec3> vertices;
+		int i = 0;
+		glm::dvec3 T, B;
+		make_orthonormal_basis(-norm, T, B);
+		double test = glm::angle(T, B);
+		for (double dist = lMin; dist < lMax*prec; dist *= prec) {
+			if (dist > lMax)dist = lMax;
+			double radius = sqrt(1 - (r - dist) * (r - dist));
+			double end = 0;
+			if ((i++) % 2 == 1)end += PI / points;
+			for (double th = end; th < 2 * PI + end; th += 2 * PI / points) {
+				glm::dvec3 V = norm * (r - dist);
+				V += (cos(th) * T + sin(th) * B) * radius;
+				//V = ref + V;
+				V = glm::normalize(V);
+				V *= get(atan2(V.y, V.x), acos(V.z))+1;
+				vertices.push_back(V);
+			}
+			if (dist == lMax)break;
+		}
+		for (int i = 0; i < (int)vertices.size() / 16 - 1; i++) {
+			for (int j = 0; j < 16; j++) {
+				int a, b, c;
+				a = i * 16 + j;
+				b = i * 16 + (j + 1) % 16;
+				c = (i + 1) * 16 + (j + i % 2) % 16;
+				//if the current layer is even then +1 otherwise don't +1
+				//this is for the layer shifting thing
+				ofMesh t = getTriangleMesh(vertices[a], vertices[b], vertices[c]);
+				m.append(t);
+				a = i * 16 + j;
+				b = (i + 1) * 16 + (j + i % 2) % 16;
+				c = (i + 1) * 16 + ffmod(j + i % 2 - 1,16);
+				t = getTriangleMesh(vertices[a], vertices[b], vertices[c]);
+				m.append(t);
+			}
+		}
+		return m;
+	}
+};
 class Planet;
 class OrbitalElements;
 class Planet {
@@ -153,6 +352,9 @@ public:
 	shared_ptr<OrbitalElements> o;
 	double gravity;//m^3/s^2
 	double radius;
+	Terrain terrain;
+	of3dPrimitive brush;
+	ofMesh mesh;
 	Planet(double g, double r);
 	Planet(double g, double r, shared_ptr<Planet> p1, double a1, double e1, double i1, double o1, double w1, double v1);
 	glm::dvec3 pos(double t);
@@ -273,7 +475,9 @@ public:
 		ofEndShape(e<1);
 	}
 };
-vector<shared_ptr<Planet>> planets = { make_shared<Planet>(Planet(3.5316e12,600000)) };
+vector<shared_ptr<Planet>> planets = {
+	make_shared<Planet>(Planet(3.5316e12,600000))
+};
 Planet::Planet(double g, double r) {
 	gravity = g;
 	radius = r;
@@ -308,8 +512,22 @@ void Planet::displayMode1(double t) {
 	ofPushMatrix();
 	ofTranslate(glm::vec3(p));
 	ofFill();
+	//ofDrawSphere(radius * orbitScale);
+	glm::dvec3 ref = (glm::dvec3)camera.getGlobalPosition()-p;
+	double r = glm::length(ref);
+	if (r <= radius * orbitScale) {
+		orbitScale = r / 1.05 / radius;
+	}
+	ref /= radius*orbitScale;
+	//ref = { 0,0,1.001 };
 	ofSetColor(127, 127, 127);//TODO
-	ofDrawSphere(radius * orbitScale);
+	mesh.clear();
+	mesh = terrain.mesh(ref,2);
+	of3dPrimitive brush = { mesh };
+	brush.setScale(radius*orbitScale/DM3_SCALE);
+	brush.draw();
+	//brush.drawWireframe();
+	//brush.drawNormals(100, true);
 	ofTranslate(-glm::vec3(p));
 	ofPopMatrix();
 	if(o!=nullptr)o->displayMode1(t);
@@ -529,6 +747,7 @@ public:
 		t.bind();
 		brush.draw();
 		t.unbind();
+		//brush.drawNormals(100, true);
 		ofPopMatrix();
 	}
 	void updateGrid() {
@@ -696,7 +915,7 @@ private:
 		return res;
 	}
 };
-int sceneDisplayed = 2;//0=instruments,1=map,2=craft part details,3=camera(future)
+int sceneDisplayed = 2;//0=instruments,1=map,2=craft part details,3=camera
 void dragMap() {
 	if (sceneDisplayed != 0 && sceneDisplayed != 2)return;
 	if (!mouse[0])return;
