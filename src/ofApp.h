@@ -46,6 +46,8 @@ public:
 glm::dvec2 mapPos;//sceneDisplayed==0||sceneDisplayed==2
 double mapScale = 16;
 easyCam camera;//sceneDisplayed==1||sceneDisplayed==3
+shared_ptr<ofLight> sunLight;//pointer,otherwise error
+//TODO:move this into the any planet without an orbit(i.e the sun)
 glm::dvec3 orbitPos;//sceneDisplayed==1
 double orbitScale=1.0/600;
 vector<string> faceNames = { "right","left","top","bottom","front","back" };
@@ -270,12 +272,21 @@ void make_orthonormal_basis(const glm::dvec3& N, glm::dvec3& T, glm::dvec3& B) {
 	}
 	B = glm::cross(N, T);
 }
+glm::dvec2 sphericalCoordinates(glm::dvec3 v) {
+	glm::dvec3 t = glm::normalize(v);
+	return glm::dvec2(atan2(t.y, t.x), acos(t.z));
+}
 class Terrain {
 public:
 	vector<vector<double>> coeff;
+	bool generated = false;
 	void generate(unsigned int seed, int L,double A,double a) {
+		//if a planet isn't generated,it will render as a sphere(gas giant).
+		//if a planet is actually a gas giant,don't generate it!
+		//same thing applies to stars,of course
 		coeff.clear();
 		//seed fineness amplitude(ratio of mountains to planet radius) smoothness(1.5 to 4)
+		//TODO:there is in fact something wrong here,go fix it
 		mt19937 rng(seed);
 		for (int l = 0; l <= L; l++) {
 			vector<double> temp = {};
@@ -285,6 +296,7 @@ public:
 			}
 			coeff.push_back(temp);
 		}
+		generated = true;
 	}
 	double get(double th, double ph, int level = -1) {
 		//returns relative altitude not distance to planet center,need to +1 then *radius
@@ -297,23 +309,37 @@ public:
 		}
 		return ret;
 	}
-	ofMesh mesh(glm::dvec3 ref,double prec) {
+	double get(glm::dvec3 v, int level = -1) {
+		glm::dvec2 c = sphericalCoordinates(v);
+		return get(c.x, c.y, level);
+	}
+	ofMesh mesh(glm::dvec3 ref,double prec,bool centered=false) {
 		//ref is relative to the planet,scaled down by the radius
 		//(so is the resulting mesh)
-		ofMesh m;
+		//TODO:centered makes the mesh centered around the camera
+		int points = 64;
 		double r = glm::length(ref);
 		glm::dvec3 norm = ref / r;
-		double lMin = r - 1, lMax = r + 1;
-		if (lMin < 0)throw "camera in planet";
-		int points = 64;
+		double sea = (r > 1) ? 1 : -1;//if the camera is above sea level
+		double lMin = sea*(r - 1);//if the camera is below the surface lMin should still be positive
+		//if (lMin < 0)throw "camera in planet";
+		double lMax = sqrt(r * r - 1);//horizon assuming flatness
+		if (!generated) {
+			ofSpherePrimitive sphere;
+			sphere.setRadius(256);
+			sphere.setResolution(points);
+			return sphere.getMesh();
+		}
+		ofMesh m;
 		vector<glm::dvec3> vertices;
 		int i = 0;
 		glm::dvec3 T, B;
 		make_orthonormal_basis(-norm, T, B);
-		double test = glm::angle(T, B);
-		for (double dist = lMin; dist < lMax*prec; dist *= prec) {
-			if (dist > lMax)dist = lMax;
-			double radius = sqrt(1 - (r - dist) * (r - dist));
+		double detail = lMin / points;
+		for (
+			double radius = 0,dist=lMin,dr=detail;
+			radius < lMax/r;
+			dr= detail * pow(prec, sqrt(dist * dist + radius * radius) / lMin - 1),radius+=dr,dist=r-sea*sqrt(1-radius*radius)) {
 			double end = 0;
 			if ((i++) % 2 == 1)end += PI / points;
 			double th = end;
@@ -326,7 +352,6 @@ public:
 				vertices.push_back(V);
 				th += 2 * PI / points;
 			}
-			if (dist == lMax)break;
 		}
 		for (int i = 0; i < (int)vertices.size() / points - 1; i++) {
 			for (int j = 0; j < points; j++) {
@@ -519,13 +544,13 @@ void Planet::displayMode1(double t) {
 	glm::dvec3 ref = (glm::dvec3)camera.getGlobalPosition()-p;
 	double r = glm::length(ref);
 	if (r <= radius * orbitScale) {
-		orbitScale = r / 1.05 / radius;
+		orbitScale = r / (1.05 * radius);
 	}
 	ref /= radius*orbitScale;
 	//ref = { 0,0,1.001 };
 	ofSetColor(127, 127, 127);//TODO
 	mesh.clear();//probably superfluous
-	mesh = terrain.mesh(ref,1.1);
+	mesh = terrain.mesh(ref,2);
 	of3dPrimitive brush = { mesh };
 	brush.setScale(radius*orbitScale/DM3_SCALE);
 	brush.draw();

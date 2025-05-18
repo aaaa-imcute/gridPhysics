@@ -11,7 +11,11 @@ void ofApp::setup(){
 	ofDisableAntiAliasing();
 	ofDisableBlendMode();
 	createAtlas();
-	planets[0]->terrain.generate(0, 5, 0.1, 1.5);
+	sunLight = make_shared<ofLight>(ofLight());
+	sunLight->setPointLight();
+	sunLight->setSpecularColor(ofColor::white);
+	sunLight->setPosition(0, 10000, 0);
+	planets[0]->terrain.generate(1, 5, 0.5, 1.5);
 	//planets[0]->mesh = planets[0]->terrain.mesh({0,0,1},2);
 	t.rotateRightFace();
 	p.setItem(make_shared<GridElement>(t), 0, 1, 0);
@@ -38,6 +42,8 @@ void ofApp::draw(){
 	if (keys['3'])sceneDisplayed = 3;
 	switch(sceneDisplayed){
 	case 1:
+		ofEnableLighting();
+		sunLight->enable();
 		camera.begin();
 		ofEnableDepthTest();
 		p.displayMode1(totalTime);
@@ -47,6 +53,8 @@ void ofApp::draw(){
 		//ofDrawAxis(256);
 		ofDisableDepthTest();
 		camera.end();
+		sunLight->disable();
+		ofDisableLighting();
 		break;
 	case 2:
 		ofPushMatrix();
@@ -60,6 +68,8 @@ void ofApp::draw(){
 		ofPopMatrix();
 		break;
 	case 3:
+		ofEnableLighting();
+		sunLight->enable();
 		camera.begin();
 		ofEnableDepthTest();
 		p.displayMode3();
@@ -67,6 +77,8 @@ void ofApp::draw(){
 		//ofDrawArrow({0,0,0}, p.avel*100.0, 20.0);
 		ofDisableDepthTest();
 		camera.end();
+		sunLight->disable();
+		ofDisableLighting();
 		break;
 	}
 }
