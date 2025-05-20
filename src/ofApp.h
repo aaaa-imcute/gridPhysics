@@ -181,72 +181,50 @@ ofMesh getRectangleMesh(glm::dvec3 pos, glm::dvec3 width, glm::dvec3 height, glm
 	m.append(n);
 	return m;
 }
-double legendrePoly(int n, double x) {
-	/*
-	if (n == 0)return 1;
-	if (n == 1)return x;
-	return ((2 * n - 1) * x * legendre(n - 1, x) - (n - 1) * legendre(n - 2, x)) / n;
-	*///don't do this,too slow
-	//this should work
-	if (n == 0)return 1;
-	if (n == 1)return x;
-	double l = 0, l1 = x, l2 = 1;
-	//0 for "0% we are going to use uninitialized memory at this branch without the 0"
-	for (int i = 2; i <= n; i++) {
-		l = ((2 * i - 1) * x * l1 - (i - 1) * l2) / i;
-		l2 = l1;
-		l1 = l;
+double assoclegendre(int l, int m, double x) {
+	if (m < 0 || m > l || std::abs(x) > 1.0) {
+		return 0.0; // invalid input
 	}
-	return l;
-}
-double associatedLegendre(int l, int m, double x) {
-	m = abs(m);
-	if (m > l) return 0;
 
+	// Compute P_m^m(x)
 	double pmm = 1.0;
 	if (m > 0) {
-		double somx2 = sqrt((1.0 - x) * (1.0 + x));
+		double somx2 = std::sqrt((1.0 - x) * (1.0 + x)); // = sqrt(1-x^2)
 		double fact = 1.0;
-		for (int i = 1; i <= m; i++) {
-			pmm *= -fact * somx2;
+		for (int i = 1; i <= m; ++i) {
+			pmm *= (-fact) * somx2;
 			fact += 2.0;
 		}
 	}
 
-	if (l == m) return pmm;
-	double pmmp1 = x * (2 * m + 1) * pmm;
-	if (l == m + 1) return pmmp1;
+	if (l == m) {
+		return pmm;
+	}
 
-	double pll = 0;
+	// Compute P_{m+1}^m(x)
+	double pmmp1 = x * (2 * m + 1) * pmm;
+	if (l == m + 1) {
+		return pmmp1;
+	}
+
+	// Recurrence for l > m + 1:
+	// P_l^m(x) = ((2l - 1) x P_{l-1}^m(x) - (l + m - 1) P_{l-2}^m(x)) / (l - m)
+	double pll = 0.0;
+	double p_lm2 = pmm;
+	double p_lm1 = pmmp1;
 	for (int ll = m + 2; ll <= l; ++ll) {
-		pll = ((2 * ll - 1) * x * pmmp1 - (ll + m - 1) * pmm) / (ll - m);
-		pmm = pmmp1;
-		pmmp1 = pll;
+		pll = ((2 * ll - 1) * x * p_lm1 - (ll + m - 1) * p_lm2) / (ll - m);
+		p_lm2 = p_lm1;
+		p_lm1 = pll;
 	}
 	return pll;
 }
-double factorial(int i) {
-	return tgamma(i + 1);
-	double ret = 1;
-	for (int j = 1; j <= i; j++) {
-		ret *= j;
-	}
-	return ret;
-}
-double sphericalNormalization(int l, int m) {
-	return sqrt((2 * l + 1) / (4 * PI) * factorial(l - m) / factorial(l + m));
-}
-/*double sphericalHarmonics(int l, int m, double th, double ph) {
-	double n = sphericalNormalization(l, abs(m));
-	double p = legendrePoly(abs(m), cos(th));
-	if (m == 0)return n * p;
-	if (m > 0)return sqrt(2) * n * cos(m * ph) * p;
-	return sqrt(2) * n * sin(-m * ph) * p;
-}*/
 double sphericalHarmonics(int l, int m, double th, double ph) {
+	double ep=0.000001;
+	th = ofClamp(th, ep, PI - ep);
 	int abs_m = abs(m);
-	double norm = sqrt((2.0 * l + 1.0) / (4.0 * PI) * factorial(l - abs_m) / factorial(l + abs_m));
-	double plm = associatedLegendre(l, abs_m, cos(th));
+	double norm = sqrt((2.0 * l + 1.0) / (4.0 * PI) * tgamma(l - abs_m + 1) / tgamma(l + abs_m + 1));
+	double plm = ((abs_m%2==0)?1:-1)*assoclegendre(l, abs_m, cos(th));
 	if (m == 0) return norm * plm;
 	if (m > 0) return sqrt(2.0) * norm * plm * cos(m * ph);
 	else       return sqrt(2.0) * norm * plm * sin(-m * ph);
@@ -274,24 +252,29 @@ void make_orthonormal_basis(const glm::dvec3& N, glm::dvec3& T, glm::dvec3& B) {
 }
 glm::dvec2 sphericalCoordinates(glm::dvec3 v) {
 	glm::dvec3 t = glm::normalize(v);
-	return glm::dvec2(atan2(t.y, t.x), acos(t.z));
+	//return glm::dvec2(atan2(t.y, t.x), acos(t.z));
+	return glm::dvec2(atan2(t.z, t.x), acos(t.y));//use the CORRECT up direction
 }
 class Terrain {
 public:
 	vector<vector<double>> coeff;
 	bool generated = false;
-	void generate(unsigned int seed, int L,double A,double a) {
+	void generate(unsigned int seed, int L,double A,double a,bool test=false) {
+		//my chatGPT says i am obligated to clarify that a is between 1.5 and 4.0
 		//if a planet isn't generated,it will render as a sphere(gas giant).
 		//if a planet is actually a gas giant,don't generate it!
 		//same thing applies to stars,of course
 		coeff.clear();
 		//seed fineness amplitude(ratio of mountains to planet radius) smoothness(1.5 to 4)
-		//TODO:there is in fact something wrong here,go fix it
 		mt19937 rng(seed);
 		for (int l = 0; l <= L; l++) {
 			vector<double> temp = {};
 			for (int m = -l; m <= l; m++) {
 				normal_distribution<double> d(0, A / pow(1 + l, a));
+				if (test) {
+					temp.push_back(0);
+					continue;
+				}
 				temp.push_back(d(rng));
 			}
 			coeff.push_back(temp);
@@ -308,23 +291,28 @@ public:
 			}
 		}
 		return ret;
+		//2*(ret*ret)-1;//temporary patch,to simulate what electron orbitals look like
+		//since that is what I am familiar with.
 	}
 	double get(glm::dvec3 v, int level = -1) {
 		glm::dvec2 c = sphericalCoordinates(v);
-		return get(c.x, c.y, level);
+		return get(c.y, c.x, level);
 	}
 	ofMesh mesh(glm::dvec3 ref,double prec,bool centered=false) {
 		//ref is relative to the planet,scaled down by the radius
 		//(so is the resulting mesh)
 		//TODO:centered makes the mesh centered around the camera
+		//TODO:Fix algorithm so it uses actual elevation instead of assuming sea level
 		int points = 64;
 		double r = glm::length(ref);
 		glm::dvec3 norm = ref / r;
-		double sea = (r > 1) ? 1 : -1;//if the camera is above sea level
-		double lMin = sea*(r - 1);//if the camera is below the surface lMin should still be positive
+		//double sea = (r > 1) ? 1 : -1;//if the camera is above sea level
+		//double lMin = sea*(r - 1);//if the camera is below the surface lMin should still be positive
+		double ter = 1 + get(norm);
+		double lMin = r - ter;
 		//if (lMin < 0)throw "camera in planet";
-		double lMax = sqrt(r * r - 1);//horizon assuming flatness
-		if (!generated) {
+		//double lMax = sqrt(r * r - 1);//horizon assuming flatness
+		if (!generated||lMin>1.5) {
 			ofSpherePrimitive sphere;
 			sphere.setRadius(256);
 			sphere.setResolution(points);
@@ -335,23 +323,26 @@ public:
 		int i = 0;
 		glm::dvec3 T, B;
 		make_orthonormal_basis(-norm, T, B);
-		double detail = lMin / points;
-		for (
-			double radius = 0,dist=lMin,dr=detail;
-			radius < lMax/r;
-			dr= detail * pow(prec, sqrt(dist * dist + radius * radius) / lMin - 1),radius+=dr,dist=r-sea*sqrt(1-radius*radius)) {
+		double detail = (r-1)/16;//TODO:make better
+		double radius = 0, dist = r-1;
+		double horizon = sqrt(detail*detail+dist*dist);
+		while(radius<=1) {
 			double end = 0;
 			if ((i++) % 2 == 1)end += PI / points;
 			double th = end;
 			for (int j = 0; j < points;j++) {
 				glm::dvec3 V = norm * (r - dist);
 				V += (cos(th) * T + sin(th) * B) * radius;
-				//V = ref + V;
-				V = glm::normalize(V);
-				V *= get(atan2(V.y, V.x), acos(V.z))+1;
+				V *= get(V)+1;
 				vertices.push_back(V);
 				th += 2 * PI / points;
 			}
+			dist = (horizon * horizon + r * r-1) / (2 * r);
+			//radius = sqrt(horizon * horizon - dist * dist);
+			radius = sqrt(1 - pow(r-dist, 2));
+			horizon += detail*pow(prec,horizon/detail);
+			//TODO:Make LOD have double the distance between points per distance doubled,but
+			//IN THE VIEW OF THE CAMERA NOT THE ACTUAL WORLD
 		}
 		for (int i = 0; i < (int)vertices.size() / points - 1; i++) {
 			for (int j = 0; j < points; j++) {
@@ -544,13 +535,13 @@ void Planet::displayMode1(double t) {
 	glm::dvec3 ref = (glm::dvec3)camera.getGlobalPosition()-p;
 	double r = glm::length(ref);
 	if (r <= radius * orbitScale) {
-		orbitScale = r / (1.05 * radius);
+		orbitScale = r / (1.001 * radius);
 	}
 	ref /= radius*orbitScale;
-	//ref = { 0,0,1.001 };
+	//ref = { 0,1.05,0 };
 	ofSetColor(127, 127, 127);//TODO
 	mesh.clear();//probably superfluous
-	mesh = terrain.mesh(ref,2);
+	mesh = terrain.mesh(ref,1.05);
 	of3dPrimitive brush = { mesh };
 	brush.setScale(radius*orbitScale/DM3_SCALE);
 	brush.draw();
@@ -727,7 +718,7 @@ public:
 	void displayMode1(double t) {
 		glm::dvec3 pos = (orbit.apos(t) - orbitPos) * orbitScale;
 		ofPushMatrix();
-		ofTranslate(glm::vec3(pos));//draw ship
+		ofTranslate(glm::vec3(pos));//draw ship(TODO)
 		ofFill();
 		ofSetColor(127, 127, 127);
 		ofDrawSphere(16);
