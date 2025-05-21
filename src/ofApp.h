@@ -312,7 +312,7 @@ public:
 		double lMin = r - ter;
 		//if (lMin < 0)throw "camera in planet";
 		//double lMax = sqrt(r * r - 1);//horizon assuming flatness
-		if (!generated||lMin>1.5) {
+		if (!generated||lMin>16) {
 			ofSpherePrimitive sphere;
 			sphere.setRadius(256);
 			sphere.setResolution(points);
@@ -323,10 +323,13 @@ public:
 		int i = 0;
 		glm::dvec3 T, B;
 		make_orthonormal_basis(-norm, T, B);
-		double detail = (r-1)/16;//TODO:make better
-		double radius = 0, dist = r-1;
-		double horizon = sqrt(detail*detail+dist*dist);
-		while(radius<=1) {
+		double detail = PI/256;//now it is relative to the camera not the planet
+		for(double ph=0;ph<asin(1/r);ph+=detail){
+			//yep the angle convention thing is backwards here wrt the
+			//SH math,oops!(th came first and represented angles on a 2d system hence the name)
+			double h = r * cos(ph) - sqrt(1-r*r*sin(ph)*sin(ph));
+			double dist = h * cos(ph);
+			double radius = h * sin(ph);
 			double end = 0;
 			if ((i++) % 2 == 1)end += PI / points;
 			double th = end;
@@ -337,12 +340,6 @@ public:
 				vertices.push_back(V);
 				th += 2 * PI / points;
 			}
-			dist = (horizon * horizon + r * r-1) / (2 * r);
-			//radius = sqrt(horizon * horizon - dist * dist);
-			radius = sqrt(1 - pow(r-dist, 2));
-			horizon += detail*pow(prec,horizon/detail);
-			//TODO:Make LOD have double the distance between points per distance doubled,but
-			//IN THE VIEW OF THE CAMERA NOT THE ACTUAL WORLD
 		}
 		for (int i = 0; i < (int)vertices.size() / points - 1; i++) {
 			for (int j = 0; j < points; j++) {
@@ -353,7 +350,7 @@ public:
 				//if the current layer is even then +1 otherwise don't +1
 				//this is for the layer shifting thing
 				ofMesh t = getTriangleMesh(vertices[a], vertices[b], vertices[c]);
-				m.append(t);
+				if(i!=0)m.append(t);
 				a = i * points + j;
 				b = (i + 1) * points + ffmod(j + i % 2, points);
 				c = (i + 1) * points + ffmod(j + i % 2 - 1, points);
@@ -538,7 +535,7 @@ void Planet::displayMode1(double t) {
 		orbitScale = r / (1.001 * radius);
 	}
 	ref /= radius*orbitScale;
-	//ref = { 0,1.05,0 };
+	//ref = { 0,1.001,0 };
 	ofSetColor(127, 127, 127);//TODO
 	mesh.clear();//probably superfluous
 	mesh = terrain.mesh(ref,1.05);
