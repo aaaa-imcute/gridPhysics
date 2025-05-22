@@ -15,7 +15,7 @@ void ofApp::setup(){
 	sunLight->setPointLight();
 	sunLight->setSpecularColor(ofColor::white);
 	sunLight->setPosition(0, 10000, 0);
-	planets[0]->terrain.generate(1, 10, 0.1, 1.5/*, true*/);
+	planets[0]->terrain.generate(1, 10, 0.1, 2/*, true*/);
 	//planets[0]->terrain.coeff[0][0] = 0;
 	//planets[0]->mesh = planets[0]->terrain.mesh({0,0,1},2);
 	t.rotateRightFace();

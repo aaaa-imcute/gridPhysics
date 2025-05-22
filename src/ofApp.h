@@ -259,18 +259,23 @@ class Terrain {
 public:
 	vector<vector<double>> coeff;
 	bool generated = false;
+	double maxHeight = 0;
 	void generate(unsigned int seed, int L,double A,double a,bool test=false) {
 		//my chatGPT says i am obligated to clarify that a is between 1.5 and 4.0
 		//if a planet isn't generated,it will render as a sphere(gas giant).
 		//if a planet is actually a gas giant,don't generate it!
 		//same thing applies to stars,of course
 		coeff.clear();
-		//seed fineness amplitude(ratio of mountains to planet radius) smoothness(1.5 to 4)
+		maxHeight = 0;
+		//seed fineness amplitude(ratio of mountains to planet radius) smoothness(more than 2)
 		mt19937 rng(seed);
 		for (int l = 0; l <= L; l++) {
+			double var = A / pow(1 + l, a);
+			maxHeight += pow(l, 0.25) * var * 2;//about 95% accurate(2 stddev)
+			//maxHeight += pow(2 * l / exp(1.0), l) * var;
 			vector<double> temp = {};
 			for (int m = -l; m <= l; m++) {
-				normal_distribution<double> d(0, A / pow(1 + l, a));
+				normal_distribution<double> d(0, var);
 				if (test) {
 					temp.push_back(0);
 					continue;
@@ -279,6 +284,7 @@ public:
 			}
 			coeff.push_back(temp);
 		}
+
 		generated = true;
 	}
 	double get(double th, double ph, int level = -1) {
@@ -302,17 +308,11 @@ public:
 		//ref is relative to the planet,scaled down by the radius
 		//(so is the resulting mesh)
 		//TODO:centered makes the mesh centered around the camera
-		//TODO:Fix algorithm so it uses actual elevation instead of assuming sea level
+		double ter = 1 + get(ref);
 		int points = 64;
 		double r = glm::length(ref);
 		glm::dvec3 norm = ref / r;
-		//double sea = (r > 1) ? 1 : -1;//if the camera is above sea level
-		//double lMin = sea*(r - 1);//if the camera is below the surface lMin should still be positive
-		double ter = 1 + get(norm);
-		double lMin = r - ter;
-		//if (lMin < 0)throw "camera in planet";
-		//double lMax = sqrt(r * r - 1);//horizon assuming flatness
-		if (!generated||lMin>16) {
+		if (!generated||r>16) {
 			ofSpherePrimitive sphere;
 			sphere.setRadius(256);
 			sphere.setResolution(points);
@@ -324,10 +324,17 @@ public:
 		glm::dvec3 T, B;
 		make_orthonormal_basis(-norm, T, B);
 		double detail = PI/256;//now it is relative to the camera not the planet
-		for(double ph=0;ph<asin(1/r);ph+=detail){
+		for(double ph=0;;ph+=detail){
+			double limit = asin(ter / r);
+			//yes yes yes this uses 1 as the height of the horizon which is totally incorrect
+			//but if we use the actual approximate maxHeight then there is the case where things render
+			//behind the camera which isn't nice.
+			//can of worms.I'd rather allow the mountain thing problem to exist.
+			//we use ter so there is no case where this is nan
+			if (ph > limit)ph = limit;
 			//yep the angle convention thing is backwards here wrt the
 			//SH math,oops!(th came first and represented angles on a 2d system hence the name)
-			double h = r * cos(ph) - sqrt(1-r*r*sin(ph)*sin(ph));
+			double h = r * cos(ph) - sqrt(ter * ter - r * r * sin(ph) * sin(ph));
 			double dist = h * cos(ph);
 			double radius = h * sin(ph);
 			double end = 0;
@@ -340,6 +347,7 @@ public:
 				vertices.push_back(V);
 				th += 2 * PI / points;
 			}
+			if (ph == limit)break;
 		}
 		for (int i = 0; i < (int)vertices.size() / points - 1; i++) {
 			for (int j = 0; j < points; j++) {
@@ -531,8 +539,9 @@ void Planet::displayMode1(double t) {
 	//ofDrawSphere(radius * orbitScale);
 	glm::dvec3 ref = (glm::dvec3)camera.getGlobalPosition()-p;
 	double r = glm::length(ref);
-	if (r <= radius * orbitScale) {
-		orbitScale = r / (1.001 * radius);
+	double ter = 1 + terrain.get(ref);
+	if (r <= radius * orbitScale*ter) {
+		orbitScale = r / (1.01 * radius*ter);
 	}
 	ref /= radius*orbitScale;
 	//ref = { 0,1.001,0 };
