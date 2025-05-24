@@ -15,7 +15,19 @@ void ofApp::setup(){
 	sunLight->setPointLight();
 	sunLight->setSpecularColor(ofColor::white);
 	sunLight->setPosition(0, 10000, 0);
-	planets[0]->terrain.generate(1, 10, 0.1, 2/*, true*/);
+	camera.setFarClip(16777215.0);
+	planets[0]->color = [&](double h)->ofColor {
+		if (h <= 0)return ofColor(0, 0, 255);
+		ofColor beach = ofColor(240, 220, 130);     // sandy yellow
+		ofColor plains = ofColor(70, 180, 90);      // rich green
+		ofColor mountains = ofColor(255, 255, 255); // snow white
+		if (h < 0.5) {
+			return beach.getLerped(plains, h * 2);
+		}
+		return plains.getLerped(mountains, h * 2 - 1);
+		};
+	createPlanetAtlas();
+	planets[0]->terrain.generate(436, 10, 0.1, 2/*, true*/);
 	//planets[0]->terrain.coeff[0][0] = 0;
 	//planets[0]->mesh = planets[0]->terrain.mesh({0,0,1},2);
 	t.rotateRightFace();
@@ -48,8 +60,8 @@ void ofApp::draw(){
 		camera.begin();
 		ofEnableDepthTest();
 		p.displayMode1(totalTime);
-		for (auto& ptr : planets) {
-			ptr->displayMode1(totalTime);
+		for (int i = 0; i < planets.size();i++) {
+			planets[i]->displayMode1(totalTime,i);
 		}
 		//ofDrawAxis(256);
 		ofDisableDepthTest();
@@ -73,6 +85,9 @@ void ofApp::draw(){
 		sunLight->enable();
 		camera.begin();
 		ofEnableDepthTest();
+		for (int i = 0; i < planets.size(); i++) {
+			planets[i]->displayMode3(p.position, i);
+		}
 		p.displayMode3();
 		ofDrawAxis(256);
 		//ofDrawArrow({0,0,0}, p.avel*100.0, 20.0);
