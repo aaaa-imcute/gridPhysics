@@ -8,6 +8,16 @@ PhysicsGrid p(make_shared<GridElement>(root), {680000,0,0}, { 0,0,4000/*2278.931
 void ofApp::setup(){
 	//ofSetFrameRate(60);
 	//ofSetVerticalSync(true);
+	compute_legendre_coeff(10);
+	mt19937 rng(100);
+	uniform_real_distribution d(0.0, 1.0);
+	for (int i = 0; i < 10; i++) {
+		for (int j = 0; j <= i; j++) {
+			double x = d(rng);
+			if (abs(assoc_legendre(i, j, x) - assoclegendre(i, j, x)) > 0.000001)throw "not right";
+		}
+	}
+	
 	ofDisableAntiAliasing();
 	ofDisableBlendMode();
 	createAtlas();
@@ -27,22 +37,22 @@ void ofApp::setup(){
 		return plains.getLerped(mountains, h * 2 - 1);
 		};
 	createPlanetAtlas();
-	planets[0]->terrain.generate(436, 10, 0.1, 2/*, true*/);
+	planets[0]->terrain.generate(436, 7, 0.1, 2/*, true*/);
 	//planets[0]->terrain.coeff[0][0] = 0;
 	//planets[0]->mesh = planets[0]->terrain.mesh({0,0,1},2);
 	t.rotateRightFace();
 	p.setItem(make_shared<GridElement>(t), 0, 1, 0);
 }
-static constexpr double DT = 1.0/600;
+constexpr double PHYSICS_DT = 1.0/600;
 double remainingSimulation = 0.0;
 double totalTime = 0.0;
 void ofApp::update(){
 	dragMap();
 	if (sceneDisplayed != 2) {
 		remainingSimulation += ofGetLastFrameTime();
-		for (; remainingSimulation > DT; remainingSimulation -= DT) {
-			p.updatePhysics(totalTime,DT);
-			totalTime += DT;
+		for (; remainingSimulation > PHYSICS_DT; remainingSimulation -= PHYSICS_DT) {
+			p.updatePhysics(totalTime,PHYSICS_DT);
+			totalTime += PHYSICS_DT;
 		}
 	}
 }

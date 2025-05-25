@@ -74,8 +74,8 @@ void drawImage(string img, float x, float y) {
 ofFbo atlas;
 unordered_map<string, glm::dvec2> atlasMap;
 ofFbo planetAtlas;//map of planet colors per altitude
-static constexpr double DM3_SCALE = 256;
-static constexpr int ATLAS_SIZE = 256;
+constexpr double DM3_SCALE = 256;
+constexpr int ATLAS_SIZE = 256;
 void walkTextures(string path, int& x, int& y) {
 	ofDirectory dir(path);
 	if (!dir.isDirectory()) {
@@ -130,59 +130,25 @@ void drawFaceNormal2D(glm::dvec3 v, glm::dvec2 pos) {//sceneDisplay==2
 		drawLine(pos + glm::dvec2(-4, 4), pos + glm::dvec2(4, -4),1);
 	}
 }
-ofMesh getTriangleMesh(glm::dvec3 a, glm::dvec3 b, glm::dvec3 c) {
+void getTriangleMesh(ofMesh& m,glm::dvec3 a, glm::dvec3 b, glm::dvec3 c) {
 	double scale = DM3_SCALE;
+	int baseIndex = m.getNumVertices();
 	glm::dvec3 normal = glm::cross(c - b, a - b);
-	ofMesh m;
 	m.addVertex(a * scale);
 	m.addVertex(b * scale);
 	m.addVertex(c * scale);
 	for (int i = 0; i < 3; i++)m.addNormal(normal);
-	m.addTriangle(0, 1, 2);
-	return m;
+	m.addTriangle(baseIndex, baseIndex + 1, baseIndex + 2);
 }
-ofMesh getTriangleMesh(glm::dvec3 a, glm::dvec3 b, glm::dvec3 c, glm::dvec2 aa, glm::dvec2 ab, glm::dvec2 ac) {
-	/*double scale = DM3_SCALE;
-	glm::dvec3 normal = glm::cross(c - b, a - b);
-	ofMesh m;
-	m.addVertex(a * scale);
+void getTriangleMesh(ofMesh& m, glm::dvec3 a, glm::dvec3 b, glm::dvec3 c, glm::dvec2 aa, glm::dvec2 ab, glm::dvec2 ac) {
+	getTriangleMesh(m, a, b, c);
 	m.addTexCoord(aa);
-	m.addVertex(b * scale);
 	m.addTexCoord(ab);
-	m.addVertex(c * scale);
 	m.addTexCoord(ac);
-	for (int i = 0; i < 3; i++)m.addNormal(normal);
-	m.addTriangle(0, 1, 2);
-	return m;*/
-	ofMesh m = getTriangleMesh(a, b, c);
-	m.addTexCoords({ aa,ab,ac });
-	return m;
 }
-ofMesh getRectangleMesh(glm::dvec3 pos, glm::dvec3 width, glm::dvec3 height, glm::dvec2 apos, glm::dvec2 aw, glm::dvec2 ah) {
-	/*double scale = DM3_SCALE;
-	glm::dvec3 normal = glm::cross(height, width);
-	ofMesh m;
-	m.addVertex(pos * scale);
-	m.addTexCoord(apos);
-	m.addVertex((pos + width) * scale);
-	m.addTexCoord(apos + aw);
-	m.addVertex((pos + height) * scale);
-	m.addTexCoord(apos + ah);
-	m.addVertex((pos + width + height) * scale);
-	m.addTexCoord(apos + aw + ah);
-	m.addVertex((pos + width) * scale);
-	m.addTexCoord(apos + aw);
-	m.addVertex((pos + height) * scale);
-	m.addTexCoord(apos + ah);
-	for (int i = 0; i < 6; i++)m.addNormal(normal);
-	m.addTriangle(0, 1, 2);
-	m.addTriangle(3, 4, 5);
-	return m;*/
-	ofMesh m, n;
-	m = getTriangleMesh(pos, pos + height, pos + width, apos, apos + ah, apos + aw);
-	n = getTriangleMesh(pos + width + height, pos + width, pos + height, apos + aw + ah, apos + aw, apos + ah);
-	m.append(n);
-	return m;
+void getRectangleMesh(ofMesh& m, glm::dvec3 pos, glm::dvec3 width, glm::dvec3 height, glm::dvec2 apos, glm::dvec2 aw, glm::dvec2 ah) {
+	getTriangleMesh(m, pos, pos + height, pos + width, apos, apos + ah, apos + aw);
+	getTriangleMesh(m, pos + width + height, pos + width, pos + height, apos + aw + ah, apos + aw, apos + ah);
 }
 void make_orthonormal_basis(const glm::dvec3& N, glm::dvec3& T, glm::dvec3& B) {
 	/*if (N.z < -0.999999f) {
@@ -242,6 +208,7 @@ public:
 	double get(double th, double ph, int level = -1) {
 		//returns relative altitude not distance to planet center,need to +1 then *radius
 		if (level == -1 || level > coeff.size())level = coeff.size();
+		compute_legendre_coeff(level);
 		double ret = 0;
 		for (int l = 0; l < level; l++) {
 			for (int m = -l; m <= l; m++) {
@@ -256,7 +223,7 @@ public:
 		glm::dvec2 c = sphericalCoordinates(v);
 		return get(c.y, c.x, level);
 	}
-	ofMesh mesh(glm::dvec3 ref,int planetI,bool centered=false) {
+	void mesh(ofMesh& m, glm::dvec3 ref,int planetI,bool centered=false) {
 		//ref is relative to the planet,scaled down by the radius
 		//(so is the resulting mesh)
 		//TODO:centered makes the mesh centered around the camera
@@ -268,7 +235,8 @@ public:
 			ofSpherePrimitive sphere;
 			sphere.setRadius(256);
 			sphere.setResolution(points);
-			return sphere.getMesh();
+			m = sphere.getMesh();
+			return;
 		}
 		double limit = asin(ter / r);
 		//yes yes yes this uses ter as the height of the horizon which is totally incorrect
@@ -276,7 +244,6 @@ public:
 		//behind the camera which isn't nice.
 		//can of worms.I'd rather allow the mountain thing problem to exist.
 		double detail = PI / 256;//now it is relative to the camera not the planet
-		ofMesh m;
 		int length = ceil(limit / detail) + 1;
 		vector<glm::dvec3> vertices(points * length);
 		vector<int> texCoords(points * length);
@@ -290,8 +257,7 @@ public:
 			double h = r * cos(ph) - sqrt(ter * ter - r * r * sin(ph) * sin(ph));
 			double dist = h * cos(ph);
 			double radius = h * sin(ph);
-			double end = 0;
-			if ((i++) % 2 == 1)end += PI / points;
+			double end = ((i++) & 1) * PI / points;
 			double th = end;
 			for (int j = 0; j < points;j++) {
 				glm::dvec3 V = norm * (r - dist);
@@ -317,26 +283,25 @@ public:
 				c = (i + 1) * points + ffmod(j + i % 2, points);
 				//if the current layer is even then +1 otherwise don't +1
 				//this is for the layer shifting thing
-				ofMesh t = getTriangleMesh(
+				if(i!=0)getTriangleMesh(
+					m,
 					vertices[a], vertices[b], vertices[c], 
 					{ texCoords[a], planetI },
 					{ texCoords[b], planetI },
 					{ texCoords[c], planetI }
 				);
-				if(i!=0)m.append(t);
 				a = i * points + j;
 				b = (i + 1) * points + ffmod(j + i % 2, points);
 				c = (i + 1) * points + ffmod(j + i % 2 - 1, points);
-				t = getTriangleMesh(
+				getTriangleMesh(
+					m,
 					vertices[a], vertices[b], vertices[c],
 					{ texCoords[a], planetI },
 					{ texCoords[b], planetI },
 					{ texCoords[c], planetI }
 				);
-				m.append(t);
 			}
 		}
-		return m;
 	}
 };
 class Planet;
@@ -522,7 +487,7 @@ void Planet::displayMode1(double t,int planetI) {
 	//ref = { 0,1.001,0 };
 	ofSetColor(127, 127, 127);//TODO
 	mesh.clear();//probably superfluous
-	mesh = terrain.mesh(ref,planetI);
+	terrain.mesh(mesh,ref,planetI);
 	of3dPrimitive brush = { mesh };
 	brush.setScale(radius*orbitScale/DM3_SCALE);
 	ofTexture tex = planetAtlas.getTexture();
@@ -547,7 +512,7 @@ void Planet::displayMode3(glm::dvec3 shipPos, int planetI) {
 	//ref = { 0,1.001,0 };
 	ofSetColor(127, 127, 127);//TODO
 	mesh.clear();//probably superfluous
-	mesh = terrain.mesh(ref, planetI, true);
+	terrain.mesh(mesh,ref, planetI, true);
 	of3dPrimitive brush = { mesh };
 	brush.setScale(radius/DM3_SCALE);
 	ofTexture t = planetAtlas.getTexture();
@@ -867,7 +832,7 @@ public:
 					aw = t3;
 					ah = -t2;
 				}
-				mesh.append(getRectangleMesh(rp, rw, rh, ap, aw, ah));
+				getRectangleMesh(mesh,rp, rw, rh, ap, aw, ah);
 			}
 		}
 		brush = { mesh };

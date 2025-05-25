@@ -65,11 +65,71 @@ double fac_ratio(int x, int y) {
 	}
 	return ret;
 }
+double qpow(double x, int p) {
+	if (p == 0)return 1;
+	double s = qpow(x, p / 2);
+	if (p & 1)return s * s * x;//x&1 means x is odd
+	return s * s;
+}
+double double_factorial(int n) {
+	//sometimes i don't need integer precision and so not those tables
+	if (n == 0 || n == -1) return 1.0;
+	if (n & 1) {
+		int k = (n - 1) / 2;
+		return tgamma(n + 1) / (pow(2, k) * tgamma(k + 1));
+	}
+	return pow(2, n / 2) * tgamma(n / 2 + 1);
+}
+vector<vector<vector<double>>> lpoly_coeff = {{{1}},{{0,1},{1,0}}};
+vector<vector<double>> lpoly_norm = {
+	{sqrt(1 / (4.0 * PI))},
+	{sqrt(3 / (4.0 * PI)),sqrt(3 / (8.0 * PI))}
+};//unfortunately we are not calculating these in the compute function so i have to
+void compute_legendre_coeff(int s) {
+	int l = lpoly_coeff.size();
+	while (l <= s) {
+		vector<vector<double>> temp;
+		for (int m = 0; m < l-1; m++) {
+			vector<double> t;
+			vector<double>& lft = lpoly_coeff[l - 1][m], rgt = lpoly_coeff[l - 2][m];
+			for (int d = 0; d <= l; d++) {
+				double left = (d == 0) ? 0 : (2 * l - 1) * lft[d - 1];
+				double right = (d >= l - 1) ? 0 : (l + m - 1) * rgt[d];
+				t.emplace_back((left - right) / (l - m));
+			}
+			temp.emplace_back(t);
+		}
+		vector<double> last0(l + 1, 0), last1(l + 1, 0);
+		last0[0]=double_factorial(2 * l - 1);
+		last1[1] = last0[0];
+		temp.emplace_back(last1);
+		temp.emplace_back(last0);
+		lpoly_coeff.emplace_back(temp);
+		vector<double> tn;
+		for (int m = 0; m <= l; m++) {
+			tn.emplace_back(sqrt((2.0 * l + 1.0) / (4.0 * PI) / fac_ratio(l + m, l - m)));
+		}
+		lpoly_norm.emplace_back(tn);
+		l++;
+	}
+}
+double assoclegendre(int l, int m, double x) {
+	//compute_legendre_coeff(l);
+	double p = qpow(sqrt(1 - x * x), m);
+	double rest = 0,xx=1;
+	const vector<double>& coeff = lpoly_coeff[l][m];
+	for (double c:coeff) {
+		rest += c*xx;
+		xx *= x;
+	}
+	return p * rest;
+}
+const double SQRT_2 = 1.4142135623730951;
 double sphericalHarmonics(int l, int m, double th, double ph) {
 	int abs_m = abs(m);
-	double norm = sqrt((2.0 * l + 1.0) / (4.0 * PI) / fac_ratio(l + abs_m, l - abs_m));
-	double plm = ((abs_m % 2 == 0) ? 1 : -1) * assoc_legendre(l, abs_m, cos(th));
-	if (m == 0) return norm * plm;
-	if (m > 0) return sqrt(2.0) * norm * plm * cos(m * ph);
-	else       return sqrt(2.0) * norm * plm * sin(-m * ph);
+	double plm = ((abs_m & 1) * -2 + 1) * assoclegendre(l, abs_m, cos(th));
+	plm *= lpoly_norm[l][abs_m];
+	if (m == 0) return plm;
+	if (m > 0) return SQRT_2 * plm * cos(m * ph);
+	return -SQRT_2 * plm * sin(m * ph);
 }
