@@ -55,6 +55,11 @@ void ofApp::update(){
 			totalTime += PHYSICS_DT;
 		}
 	}
+	/*
+	std::stringstream strm;
+	strm << "fps: " << ofGetFrameRate();
+	ofSetWindowTitle(strm.str());
+	*/
 }
 void ofApp::draw(){
 	pmousePos=mousePos;

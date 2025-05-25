@@ -66,10 +66,21 @@ double fac_ratio(int x, int y) {
 	return ret;
 }
 double qpow(double x, int p) {
+	
+	double r = 1;
+	for (int i = 0; i < p; i++) {
+		r *= x;
+	}
+	return r;
+	
+	/*
 	if (p == 0)return 1;
 	double s = qpow(x, p / 2);
 	if (p & 1)return s * s * x;//x&1 means x is odd
 	return s * s;
+	*/
+	//do not use recursive power for small exponents
+	//iterative solution gives ~1 more FPS(27 vs 28)
 }
 double double_factorial(int n) {
 	//sometimes i don't need integer precision and so not those tables
