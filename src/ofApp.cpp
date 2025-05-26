@@ -8,6 +8,7 @@ PhysicsGrid p(make_shared<GridElement>(root), {680000,0,0}, { 0,0,4000/*2278.931
 void ofApp::setup(){
 	//ofSetFrameRate(60);
 	//ofSetVerticalSync(true);
+	/*
 	compute_legendre_coeff(10);
 	mt19937 rng(100);
 	uniform_real_distribution d(0.0, 1.0);
@@ -17,7 +18,7 @@ void ofApp::setup(){
 			if (abs(assoc_legendre(i, j, x) - assoclegendre(i, j, x)) > 0.000001)throw "not right";
 		}
 	}
-	
+	*/
 	ofDisableAntiAliasing();
 	ofDisableBlendMode();
 	createAtlas();
@@ -37,7 +38,7 @@ void ofApp::setup(){
 		return plains.getLerped(mountains, h * 2 - 1);
 		};
 	createPlanetAtlas();
-	planets[0]->terrain.generate(436, 7, 0.1, 2/*, true*/);
+	planets[0]->terrain.generate(436, 10, 0.1, 2/*, true*/);
 	//planets[0]->terrain.coeff[0][0] = 0;
 	//planets[0]->mesh = planets[0]->terrain.mesh({0,0,1},2);
 	t.rotateRightFace();
@@ -55,11 +56,11 @@ void ofApp::update(){
 			totalTime += PHYSICS_DT;
 		}
 	}
-	/*
+	
 	std::stringstream strm;
 	strm << "fps: " << ofGetFrameRate();
 	ofSetWindowTitle(strm.str());
-	*/
+	
 }
 void ofApp::draw(){
 	pmousePos=mousePos;

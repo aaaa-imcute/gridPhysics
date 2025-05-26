@@ -91,9 +91,11 @@ double double_factorial(int n) {
 	}
 	return pow(2, n / 2) * tgamma(n / 2 + 1);
 }
-vector<vector<vector<double>>> lpoly_coeff = {{{1}},{{0,1},{1,0}}};
+double SQRT_2 = sqrt(2.0);
+vector<vector<vector<double>>> lpoly_coeff = {{{1}},{{0,1},{1,0}}};//TODO:Flatten
+double SQRT_INV_4PI = sqrt(1 / (4.0 * PI));//dumb cmath,not constexpr
 vector<vector<double>> lpoly_norm = {
-	{sqrt(1 / (4.0 * PI))},
+	{SQRT_INV_4PI},
 	{sqrt(3 / (4.0 * PI)),sqrt(3 / (8.0 * PI))}
 };//unfortunately we are not calculating these in the compute function so i have to
 void compute_legendre_coeff(int s) {
@@ -124,23 +126,59 @@ void compute_legendre_coeff(int s) {
 		l++;
 	}
 }
-double assoclegendre(int l, int m, double x) {
-	//compute_legendre_coeff(l);
-	double p = qpow(sqrt(1 - x * x), m);
-	double rest = 0,xx=1;
-	const vector<double>& coeff = lpoly_coeff[l][m];
-	for (double c:coeff) {
-		rest += c*xx;
-		xx *= x;
+//double assoclegendre(int l, int m, double x) {
+//	//compute_legendre_coeff(l);
+//	double p = qpow(sqrt(1 - x * x), m);
+//	double rest = 0,xx=1;
+//	const vector<double>& coeff = lpoly_coeff[l][m];
+//	for (double c:coeff) {
+//		rest += c*xx;
+//		xx *= x;
+//	}
+//	return p * rest;
+//}
+//double sphericalHarmonics(int l, int m, double th, double ph) {
+//	int abs_m = abs(m);
+//	double plm = ((abs_m & 1) * -2 + 1) * assoclegendre(l, abs_m, cos(th));
+//	plm *= lpoly_norm[l][abs_m];
+//	if (m == 0) return plm;
+//	if (m > 0) return SQRT_2 * plm * cos(m * ph);
+//	return -SQRT_2 * plm * sin(m * ph);
+//}
+double get_terrain_height(vector<vector<double>>& coeff, double th, double ph, int level) {
+	compute_legendre_coeff(level);
+	double cos_th = cos(th), Ox = sqrt(1 - cos_th * cos_th);//apl "circle function" lol
+	double rt2=0, zero=0;
+	static vector<double> cosph, sinph;
+	if (cosph.size() != level) {
+		cosph.resize(level);
+		sinph.resize(level);
 	}
-	return p * rest;
-}
-const double SQRT_2 = 1.4142135623730951;
-double sphericalHarmonics(int l, int m, double th, double ph) {
-	int abs_m = abs(m);
-	double plm = ((abs_m & 1) * -2 + 1) * assoclegendre(l, abs_m, cos(th));
-	plm *= lpoly_norm[l][abs_m];
-	if (m == 0) return plm;
-	if (m > 0) return SQRT_2 * plm * cos(m * ph);
-	return -SQRT_2 * plm * sin(m * ph);
+	for (int m = 0; m < level; ++m) {
+		cosph[m] = cos(m * ph);
+		sinph[m] = sin(m * ph);
+	}
+	for (int l = 0; l < level; l++) {
+		//const vector<double>& lpoly_norm_cur = lpoly_norm[l], coeff_cur = coeff[l];
+		//const vector<vector<double>>& lcoeff_cur = lpoly_coeff[l];
+		double rest = 0, xx = 1;
+		for (double c : lpoly_coeff[l][0]) {
+			rest += c * xx;
+			xx *= cos_th;
+		}
+		zero += lpoly_norm[l][0] * coeff[l][l] * rest;
+		double power_part = 1;
+		for (int abs_m = 1; abs_m <= l; abs_m++) {
+			power_part *= -Ox;
+			rest = 0;
+			xx = 1;
+			for (double c : lpoly_coeff[l][abs_m]) {
+				rest += c * xx;
+				xx *= cos_th;
+			}
+			double nplm = power_part * rest * lpoly_norm[l][abs_m];
+			rt2 += nplm * (coeff[l][l + abs_m] * cosph[abs_m] + coeff[l][l - abs_m] * sinph[abs_m]);
+		}
+	}
+	return SQRT_2 * rt2 + zero;
 }

@@ -208,6 +208,9 @@ public:
 	double get(double th, double ph, int level = -1) {
 		//returns relative altitude not distance to planet center,need to +1 then *radius
 		if (level == -1 || level > coeff.size())level = coeff.size();
+		return get_terrain_height(coeff, th, ph, level);
+		
+		/*
 		compute_legendre_coeff(level);
 		double ret = 0;
 		for (int l = 0; l < level; l++) {
@@ -216,8 +219,8 @@ public:
 			}
 		}
 		return ret;
-		//2*(ret*ret)-1;//temporary patch,to simulate what electron orbitals look like
-		//since that is what I am familiar with.
+		*/
+		
 	}
 	double get(glm::dvec3 v, int level = -1) {
 		glm::dvec2 c = sphericalCoordinates(v);
