@@ -151,18 +151,6 @@ void getRectangleMesh(ofMesh& m, glm::dvec3 pos, glm::dvec3 width, glm::dvec3 he
 	getTriangleMesh(m, pos + width + height, pos + width, pos + height, apos + aw + ah, apos + aw, apos + ah);
 }
 void make_orthonormal_basis(const glm::dvec3& N, glm::dvec3& T, glm::dvec3& B) {
-	/*if (N.z < -0.999999f) {
-		// Special case to avoid division by zero
-		T = glm::dvec3(0, -1, 0);
-		B = glm::dvec3(-1, 0, 0);
-	}
-	else {
-		double a = 1.0f / (1.0f + N.z);
-		double b = -N.x * N.y * a;
-		T = glm::dvec3(1.0f - N.x * N.x * a, b, -N.x);
-		B = glm::dvec3(b, 1.0f - N.y * N.y * a, -N.y);
-	}*/
-	// N must be normalized
 	if (fabs(N.x) > fabs(N.z)) {
 		T = glm::normalize(glm::dvec3(-N.y, N.x, 0.0));
 	}
@@ -173,31 +161,24 @@ void make_orthonormal_basis(const glm::dvec3& N, glm::dvec3& T, glm::dvec3& B) {
 }
 class Terrain {
 public:
-	vector<vector<double>> coeff;
-	bool generated = false;
+	double coeff[(MAX_SH_LEVEL + 1) * (MAX_SH_LEVEL + 1)];
+	int generated = 0;
 	double maxHeight = 0;
-	void generate(unsigned int seed, int L,double A,double a,bool test=false) {
-		//my chatGPT says i am obligated to clarify that a is between 1.5 and 4.0
-		//if a planet isn't generated,it will render as a sphere(gas giant).
-		//if a planet is actually a gas giant,don't generate it!
-		//same thing applies to stars,of course
-		coeff.clear();
+	void generate(unsigned int seed, int L,double A,double a) {
+		//if a planet isn't generated,it will render as a sphere(gas giant),so don't if it actually is!
 		//seed fineness amplitude(ratio of mountains to planet radius) smoothness(more than 2)
 		mt19937 rng(seed);
+		int index = 0;
 		for (int l = 0; l <= L; l++) {
 			double var = A / pow(1 + l, a);
-			vector<double> temp = {};
 			for (int m = -l; m <= l; m++) {
 				normal_distribution<double> d(0, var);
-				if (test) {
-					temp.push_back(0);
-					continue;
-				}
-				temp.push_back(d(rng));
+				//yes,i don't need a new distribution every m,only every l,
+				//but previously i did this so it sticks(so i know what the planet should look like)
+				coeff[index++]=d(rng);
 			}
-			coeff.push_back(temp);
 		}
-		generated = true;
+		generated = L;
 		maxHeight = -1;
 		for (double th = 0; th < PI; th += PI / 256) {
 			for (double ph = 0; ph < 2 * PI; ph += PI / 128) {
@@ -207,20 +188,8 @@ public:
 	}
 	double get(double th, double ph, int level = -1) {
 		//returns relative altitude not distance to planet center,need to +1 then *radius
-		if (level == -1 || level > coeff.size())level = coeff.size();
-		return get_terrain_height(coeff, th, ph, level);
-		
-		/*
-		compute_legendre_coeff(level);
-		double ret = 0;
-		for (int l = 0; l < level; l++) {
-			for (int m = -l; m <= l; m++) {
-				ret += sphericalHarmonics(l, m, th, ph) * coeff[l][m + l];
-			}
-		}
-		return ret;
-		*/
-		
+		if (level == -1 || level > generated)level = generated;
+		return get_terrain_height(coeff, th, ph, MAX_SH_LEVEL);
 	}
 	double get(glm::dvec3 v, int level = -1) {
 		glm::dvec2 c = sphericalCoordinates(v);
@@ -234,10 +203,13 @@ public:
 		int points = 64;
 		double r = glm::length(ref);
 		glm::dvec3 norm = ref / r;
-		if (!generated||r>16) {
+		if (generated==0||r>16) {
 			ofSpherePrimitive sphere;
 			sphere.setRadius(256);
 			sphere.setResolution(points);
+			vector<glm::vec2> texCoords(m.getNumVertices(), { ATLAS_SIZE / 2,planetI });
+			m.clearTexCoords();
+			m.addTexCoords(texCoords);
 			m = sphere.getMesh();
 			return;
 		}

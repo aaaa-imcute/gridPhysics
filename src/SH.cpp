@@ -3,7 +3,9 @@
 //(128*64*11**2)
 //this makes it a critical performance bottleneck
 #include "ofMain.h"
-
+const int MAX_SH_LEVEL = 11;
+#define LC_FIND_INDEX(l,m) ((l)*((l)+1)*(2*(l)+1)/6+(l+1)*(m))
+#define LN_FIND_INDEX(l) ((l)*((l)+1)/2)
 glm::dvec2 sphericalCoordinates(glm::dvec3 v) {
 	glm::dvec3 t = glm::normalize(v);
 	return glm::dvec2(atan2(t.z, t.x), acos(t.y));
@@ -65,23 +67,6 @@ double fac_ratio(int x, int y) {
 	}
 	return ret;
 }
-double qpow(double x, int p) {
-	
-	double r = 1;
-	for (int i = 0; i < p; i++) {
-		r *= x;
-	}
-	return r;
-	
-	/*
-	if (p == 0)return 1;
-	double s = qpow(x, p / 2);
-	if (p & 1)return s * s * x;//x&1 means x is odd
-	return s * s;
-	*/
-	//do not use recursive power for small exponents
-	//iterative solution gives ~1 more FPS(27 vs 28)
-}
 double double_factorial(int n) {
 	//sometimes i don't need integer precision and so not those tables
 	if (n == 0 || n == -1) return 1.0;
@@ -92,93 +77,66 @@ double double_factorial(int n) {
 	return pow(2, n / 2) * tgamma(n / 2 + 1);
 }
 double SQRT_2 = sqrt(2.0);
-vector<vector<vector<double>>> lpoly_coeff = {{{1}},{{0,1},{1,0}}};//TODO:Flatten
-double SQRT_INV_4PI = sqrt(1 / (4.0 * PI));//dumb cmath,not constexpr
-vector<vector<double>> lpoly_norm = {
-	{SQRT_INV_4PI},
-	{sqrt(3 / (4.0 * PI)),sqrt(3 / (8.0 * PI))}
+double lpoly_coeff[LC_FIND_INDEX(MAX_SH_LEVEL + 1, 0)] = { 1,0,1,1,0 };
+double lpoly_norm[LN_FIND_INDEX(MAX_SH_LEVEL + 1)] = {
+	sqrt(1 / (4.0 * PI)),
+	sqrt(3 / (4.0 * PI)),
+	sqrt(3 / (8.0 * PI))
 };//unfortunately we are not calculating these in the compute function so i have to
-void compute_legendre_coeff(int s) {
-	int l = lpoly_coeff.size();
-	while (l <= s) {
-		vector<vector<double>> temp;
+void compute_legendre_coeff() {
+	int l = 2, index = 5, nndex = 3;
+	while (l <= MAX_SH_LEVEL) {
 		for (int m = 0; m < l-1; m++) {
-			vector<double> t;
-			vector<double>& lft = lpoly_coeff[l - 1][m], rgt = lpoly_coeff[l - 2][m];
+			double *lft = &lpoly_coeff[LC_FIND_INDEX(l - 1, m)], *rgt = &lpoly_coeff[LC_FIND_INDEX(l - 2, m)];
 			for (int d = 0; d <= l; d++) {
-				double left = (d == 0) ? 0 : (2 * l - 1) * lft[d - 1];
+				double left = (d == 0) ? 0 : (2 * l - 1) * lft[d-1];
 				double right = (d >= l - 1) ? 0 : (l + m - 1) * rgt[d];
-				t.emplace_back((left - right) / (l - m));
+				lpoly_coeff[index++]=(left - right) / (l - m);
 			}
-			temp.emplace_back(t);
 		}
-		vector<double> last0(l + 1, 0), last1(l + 1, 0);
-		last0[0]=double_factorial(2 * l - 1);
-		last1[1] = last0[0];
-		temp.emplace_back(last1);
-		temp.emplace_back(last0);
-		lpoly_coeff.emplace_back(temp);
-		vector<double> tn;
+		double c = double_factorial(2 * l - 1);
+		lpoly_coeff[index++] = 0;
+		lpoly_coeff[index++] = c;
+		for (int i = 0; i < l - 1; i++)lpoly_coeff[index++] = 0;
+		lpoly_coeff[index++] = c;
+		for (int i = 0; i < l; i++)lpoly_coeff[index++] = 0;
 		for (int m = 0; m <= l; m++) {
-			tn.emplace_back(sqrt((2.0 * l + 1.0) / (4.0 * PI) / fac_ratio(l + m, l - m)));
+			lpoly_norm[nndex++]=sqrt((2.0 * l + 1.0) / (4.0 * PI) / fac_ratio(l + m, l - m));
 		}
-		lpoly_norm.emplace_back(tn);
 		l++;
 	}
 }
-//double assoclegendre(int l, int m, double x) {
-//	//compute_legendre_coeff(l);
-//	double p = qpow(sqrt(1 - x * x), m);
-//	double rest = 0,xx=1;
-//	const vector<double>& coeff = lpoly_coeff[l][m];
-//	for (double c:coeff) {
-//		rest += c*xx;
-//		xx *= x;
-//	}
-//	return p * rest;
-//}
-//double sphericalHarmonics(int l, int m, double th, double ph) {
-//	int abs_m = abs(m);
-//	double plm = ((abs_m & 1) * -2 + 1) * assoclegendre(l, abs_m, cos(th));
-//	plm *= lpoly_norm[l][abs_m];
-//	if (m == 0) return plm;
-//	if (m > 0) return SQRT_2 * plm * cos(m * ph);
-//	return -SQRT_2 * plm * sin(m * ph);
-//}
-double get_terrain_height(vector<vector<double>>& coeff, double th, double ph, int level) {
-	compute_legendre_coeff(level);
-	double cos_th = cos(th), Ox = sqrt(1 - cos_th * cos_th);//apl "circle function" lol
+double get_terrain_height(double coeff[], double th, double ph, int level) {
+	double cos_th = cos(th), nsin_th = -sin(th);
+	//no more circle function,for that the result(with the CSP) is equal to -sin(th)
 	double rt2=0, zero=0;
-	static vector<double> cosph, sinph;
-	if (cosph.size() != level) {
-		cosph.resize(level);
-		sinph.resize(level);
-	}
-	for (int m = 0; m < level; ++m) {
+	double cosph[MAX_SH_LEVEL + 1] = { 1 };
+	double sinph[MAX_SH_LEVEL + 1] = { 0 };
+	double expct[MAX_SH_LEVEL + 1] = { 1 };
+	double expox[MAX_SH_LEVEL + 1] = { 1 };
+	double preve = 1, prevx = 1;
+	for (int m = 1; m <= level; ++m) {
 		cosph[m] = cos(m * ph);
 		sinph[m] = sin(m * ph);
+		preve = expct[m] = preve * cos_th;
+		prevx = expox[m] = prevx * nsin_th;
 	}
-	for (int l = 0; l < level; l++) {
-		//const vector<double>& lpoly_norm_cur = lpoly_norm[l], coeff_cur = coeff[l];
-		//const vector<vector<double>>& lcoeff_cur = lpoly_coeff[l];
-		double rest = 0, xx = 1;
-		for (double c : lpoly_coeff[l][0]) {
-			rest += c * xx;
-			xx *= cos_th;
+	double* lpc = lpoly_coeff, * lpn = lpoly_norm, * tc = coeff;
+	for (int l = 0; l <= level; l++) {
+		double rest = 0;
+		for (int i = 0; i < l + 1; i++) {
+			rest += *(lpc++) * expct[i];
 		}
-		zero += lpoly_norm[l][0] * coeff[l][l] * rest;
-		double power_part = 1;
+		zero += *(lpn++) * *tc * rest;
 		for (int abs_m = 1; abs_m <= l; abs_m++) {
-			power_part *= -Ox;
 			rest = 0;
-			xx = 1;
-			for (double c : lpoly_coeff[l][abs_m]) {
-				rest += c * xx;
-				xx *= cos_th;
+			for (int i = 0; i < l + 1; i++) {
+				rest += *(lpc++) * expct[i];
 			}
-			double nplm = power_part * rest * lpoly_norm[l][abs_m];
-			rt2 += nplm * (coeff[l][l + abs_m] * cosph[abs_m] + coeff[l][l - abs_m] * sinph[abs_m]);
+			double nplm = expox[abs_m] * rest * *(lpn++);
+			rt2 += nplm * (tc[abs_m] * cosph[abs_m] + tc[-abs_m] * sinph[abs_m]);
 		}
+		tc += 2 * l + 2;
 	}
 	return SQRT_2 * rt2 + zero;
 }
