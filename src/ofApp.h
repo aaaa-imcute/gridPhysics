@@ -179,7 +179,7 @@ public:
 			}
 		}
 		generated = L;
-		maxHeight = -1;
+		maxHeight = -1;//TODO:since we have analytic stuff now replace this with analytical maxheight
 		for (double th = 0; th < PI; th += PI / 256) {
 			for (double ph = 0; ph < 2 * PI; ph += PI / 128) {
 				maxHeight = max(get(th, ph), maxHeight);
@@ -456,11 +456,11 @@ void Planet::displayMode1(double t,int planetI) {
 	double r = glm::length(ref);
 	double ter = 1 + terrain.get(ref);
 	if (r <= radius * orbitScale*ter) {
-		orbitScale = r / (1.01 * radius*ter);
+		orbitScale = r / (radius*ter);
 	}
 	ref /= radius*orbitScale;
-	//ref = { 0,1.001,0 };
-	ofSetColor(127, 127, 127);//TODO
+	//ref = { 0,1.5,0 };
+	ofSetColor(255,255,255);
 	mesh.clear();//probably superfluous
 	terrain.mesh(mesh,ref,planetI);
 	of3dPrimitive brush = { mesh };
@@ -469,6 +469,9 @@ void Planet::displayMode1(double t,int planetI) {
 	tex.bind();
 	brush.draw();
 	tex.unbind();
+	glm::dvec3 rayDir = glm::normalize(-ref);
+	ofSetColor(255, 0, 0);
+	ofDrawSphere(glm::vec3(radius * orbitScale * raycast_SH(terrain.coeff, ref, rayDir, MAX_SH_LEVEL)),16);
 	ofTranslate(-glm::vec3(p));//superfluous but i'll keep it here because why not
 	ofPopMatrix();
 	if(o!=nullptr)o->displayMode1(t);

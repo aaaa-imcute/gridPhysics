@@ -106,37 +106,44 @@ void compute_legendre_coeff() {
 		l++;
 	}
 }
-double get_terrain_height(double coeff[], double th, double ph, int level) {
-	double cos_th = cos(th), nsin_th = -sin(th);
-	//no more circle function,for that the result(with the CSP) is equal to -sin(th)
-	double rt2=0, zero=0;
-	double cosph[MAX_SH_LEVEL + 1] = { 1 };
-	double sinph[MAX_SH_LEVEL + 1] = { 0 };
-	double expct[MAX_SH_LEVEL + 1] = { 1 };
-	double expox[MAX_SH_LEVEL + 1] = { 1 };
-	double preve = 1, prevx = 1;
-	for (int m = 1; m <= level; ++m) {
-		cosph[m] = cos(m * ph);
-		sinph[m] = sin(m * ph);
-		preve = expct[m] = preve * cos_th;
-		prevx = expox[m] = prevx * nsin_th;
-	}
-	double* lpc = lpoly_coeff, * lpn = lpoly_norm, * tc = coeff;
-	for (int l = 0; l <= level; l++) {
-		double rest = 0;
-		for (int i = 0; i < l + 1; i++) {
-			rest += *(lpc++) * expct[i];
-		}
-		zero += *(lpn++) * *tc * rest;
-		for (int abs_m = 1; abs_m <= l; abs_m++) {
-			rest = 0;
-			for (int i = 0; i < l + 1; i++) {
-				rest += *(lpc++) * expct[i];
-			}
-			double nplm = expox[abs_m] * rest * *(lpn++);
-			rt2 += nplm * (tc[abs_m] * cosph[abs_m] + tc[-abs_m] * sinph[abs_m]);
-		}
-		tc += 2 * l + 2;
-	}
-	return SQRT_2 * rt2 + zero;
+//using macros we define three variations of the same function
+#define FUNC_NAME get_terrain_height
+#include "del_sh.inl"
+#undef FUNC_NAME
+#define FUNC_NAME get_terrain_height_dth
+#define DERIVATIVE_TH
+#include "del_sh.inl"
+#undef DERIVATIVE_TH
+#undef FUNC_NAME
+#define FUNC_NAME get_terrain_height_dph
+#define DERIVATIVE_PH
+#include "del_sh.inl"
+#undef DERIVATIVE_PH
+#undef FUNC_NAME
+double dRaycastingSH(double coeff[], glm::dvec3 origin, glm::dvec3 normal, double t, int level) {
+	//TODO testing
+	double EP = 1e-8;
+	glm::dvec3 ray = origin + normal * t;
+	double r = glm::length(ray), th = acos(ray.y / r), ph = atan2(ray.z, ray.x);
+	double dr = glm::dot(normal, ray) / r;
+	double dth = -(r * normal.y - ray.y * dr) / (r * r * sqrt(1 - (ray.y / r) * (ray.y / r)));
+	double dph = ray.x * ray.x + ray.z * ray.z;
+	if (abs(dph) < 1e-8) dph = 0;
+	else dph = (ray.x * normal.z - ray.z * normal.x) / dph;
+	return dr - get_terrain_height_dth(coeff, th, ph, level) * dth - get_terrain_height_dph(coeff, th, ph, level) * dph;
+}
+glm::dvec3 raycast_SH(double coeff[], glm::dvec3 origin, glm::dvec3 normal, int level) {
+	//TODO:Fix
+	double t = 0;//hope that we start outside the sphere ig
+	double dt = 0;//uninitialized memory warning blah blah
+	do {
+		glm::dvec3 ray = origin + normal * t;
+		double rad = glm::length(ray), th = acos(ray.y / rad), ph = atan2(ray.z, ray.x);
+		double f = rad - get_terrain_height(coeff, th, ph, level)-1;
+		double df = dRaycastingSH(coeff, origin, normal, t, level);
+		dt = f / df;
+		t -= dt;
+
+	} while (abs(dt) > 1e-8);
+	return origin + normal * t;
 }
