@@ -132,10 +132,13 @@ double dRaycastingSH(double coeff[], glm::dvec3 origin, glm::dvec3 normal, doubl
 	else dph = (ray.x * normal.z - ray.z * normal.x) / dph;
 	return dr - get_terrain_height_dth(coeff, th, ph, level) * dth - get_terrain_height_dph(coeff, th, ph, level) * dph;
 }
-glm::dvec3 raycast_SH(double coeff[], glm::dvec3 origin, glm::dvec3 normal, int level) {
+bool raycast_SH(glm::dvec3& result,double& length,double coeff[], glm::dvec3 origin, glm::dvec3 normal, int level) {
 	//TODO:Fix
+	double EP = 1e-8;
 	double t = 0;//hope that we start outside the sphere ig
 	double dt = 0;//uninitialized memory warning blah blah
+	const int MAX_ITER = 20;
+	int i = 0;
 	do {
 		glm::dvec3 ray = origin + normal * t;
 		double rad = glm::length(ray), th = acos(ray.y / rad), ph = atan2(ray.z, ray.x);
@@ -143,7 +146,9 @@ glm::dvec3 raycast_SH(double coeff[], glm::dvec3 origin, glm::dvec3 normal, int 
 		double df = dRaycastingSH(coeff, origin, normal, t, level);
 		dt = f / df;
 		t -= dt;
-
-	} while (abs(dt) > 1e-8);
-	return origin + normal * t;
+		if (isnan(dt) || isinf(dt) || abs(dt) > 1.0 / EP || t<0 || ++i>MAX_ITER)return false;
+	} while (abs(dt) > EP);
+	result = origin + normal * t;
+	length = t;
+	return true;
 }

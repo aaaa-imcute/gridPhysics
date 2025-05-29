@@ -90,9 +90,10 @@ void ofApp::draw(){
 		camera.begin();
 		ofEnableDepthTest();
 		for (int i = 0; i < planets.size(); i++) {
+			if (p.soi != planets[i])continue;
 			planets[i]->displayMode3(p.position, i);
 		}
-		p.displayMode3();
+		//p.displayMode3();
 		ofDrawAxis(256);
 		//ofDrawArrow({0,0,0}, p.avel*100.0, 20.0);
 		ofDisableDepthTest();

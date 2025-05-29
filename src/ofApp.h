@@ -240,7 +240,7 @@ public:
 				V /= ter;
 				//if (abs(glm::length(V) - 1) > 0.001)throw "that's not right!";
 				double h = get(V);
-				V *= max(h + 1,1.0);//temporary;replace with water rendering with actual option in planet
+				V *= h + 1;//max(h + 1,1.0);//temporary;replace with water rendering with actual option in planet
 				if (centered)V -= ref;
 				vertices[k] = V;//faster than push_back,but i think the SH is the actual performance issue
 				//if (h > maxHeight * 1.1)throw "way off";
@@ -469,9 +469,12 @@ void Planet::displayMode1(double t,int planetI) {
 	tex.bind();
 	brush.draw();
 	tex.unbind();
-	glm::dvec3 rayDir = glm::normalize(-ref);
-	ofSetColor(255, 0, 0);
-	ofDrawSphere(glm::vec3(radius * orbitScale * raycast_SH(terrain.coeff, ref, rayDir, MAX_SH_LEVEL)),16);
+	glm::dvec3 rayDir = glm::normalize(-ref),rayHit;
+	double length;
+	if (raycast_SH(rayHit, length, terrain.coeff, ref, rayDir, MAX_SH_LEVEL)) {
+		ofSetColor(255, 0, 0);
+		ofDrawSphere(glm::vec3(radius * orbitScale * rayHit), 16);
+	}
 	ofTranslate(-glm::vec3(p));//superfluous but i'll keep it here because why not
 	ofPopMatrix();
 	if(o!=nullptr)o->displayMode1(t);
@@ -488,7 +491,7 @@ void Planet::displayMode3(glm::dvec3 shipPos, int planetI) {
 	}
 	ref /= radius;
 	//ref = { 0,1.001,0 };
-	ofSetColor(127, 127, 127);//TODO
+	ofSetColor(255,255,255);//TODO
 	mesh.clear();//probably superfluous
 	terrain.mesh(mesh,ref, planetI, true);
 	of3dPrimitive brush = { mesh };
@@ -497,6 +500,15 @@ void Planet::displayMode3(glm::dvec3 shipPos, int planetI) {
 	t.bind();
 	brush.draw();
 	t.unbind();
+	glm::dvec3 rayDir = glm::normalize(-cameraPos),rayHit;
+	double length;
+	if (raycast_SH(rayHit, length, terrain.coeff, ref, rayDir, MAX_SH_LEVEL)) {
+		ofSetColor(255, 0, 0);
+		glm::dvec3 actualHit = radius * rayHit - shipPos;
+		ofDrawSphere(glm::vec3(actualHit), 16000);
+		//remember that the radius is in real coordinates rn
+		//a sphere of 16 is not visible lol
+	}
 	ofPopMatrix();
 }
 void createPlanetAtlas(){
