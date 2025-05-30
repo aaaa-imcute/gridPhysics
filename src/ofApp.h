@@ -179,7 +179,7 @@ public:
 			}
 		}
 		generated = L;
-		maxHeight = -1;//TODO:since we have analytic stuff now replace this with analytical maxheight
+		maxHeight = -1;//TODO:improve maxHeight accuracy?
 		for (double th = 0; th < PI; th += PI / 256) {
 			for (double ph = 0; ph < 2 * PI; ph += PI / 128) {
 				maxHeight = max(get(th, ph), maxHeight);
@@ -213,16 +213,13 @@ public:
 			m = sphere.getMesh();
 			return;
 		}
-		double limit = asin(ter / r);
-		//yes yes yes this uses ter as the height of the horizon which is totally incorrect
-		//but if we use the actual approximate maxHeight then there is the case where things render
-		//behind the camera which isn't nice.
-		//can of worms.I'd rather allow the mountain thing problem to exist.
+		double limit = PI/2+1e-5;//so apparently some calculations might be off by one if
+		//limit is divisible by detail
 		double detail = PI / 256;//now it is relative to the camera not the planet
 		int length = ceil(limit / detail) + 1;
 		vector<glm::dvec3> vertices(points * length);
 		vector<int> texCoords(points * length);
-		int i = 0,k=0;
+		int i = 0, k = 0;
 		glm::dvec3 T, B;
 		make_orthonormal_basis(-norm, T, B);
 		for(double ph=0;;ph+=detail){
@@ -238,7 +235,10 @@ public:
 				glm::dvec3 V = norm * (r - dist);
 				V += (cos(th) * T + sin(th) * B) * radius;
 				V /= ter;
-				//if (abs(glm::length(V) - 1) > 0.001)throw "that's not right!";
+				if (abs(glm::length(V) - 1) > 0.001)V = -norm;//remove problem dots
+				//mb i could optimize it if i had more brain capacity for all the geometry
+				//and do this calculation in the outer loop
+				//but whatever
 				double h = get(V);
 				V *= h + 1;//max(h + 1,1.0);//temporary;replace with water rendering with actual option in planet
 				if (centered)V -= ref;

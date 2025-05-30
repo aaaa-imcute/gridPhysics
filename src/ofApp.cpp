@@ -54,7 +54,11 @@ void ofApp::draw(){
 	pmousePos=mousePos;
 	mousePos=glm::vec2(ofGetMouseX(), ofGetMouseY());
 	if(sceneDisplayed == 1 || sceneDisplayed == 3)camera.update();
-	if (keys['1'])sceneDisplayed = 1;
+	if (keys['1']) {
+		sceneDisplayed = 1;
+		camera.angle.z = 1000;
+		camera.updateOrientation();
+	}
 	if (keys['2'])sceneDisplayed = 2;
 	if (keys['3'])sceneDisplayed = 3;
 	switch(sceneDisplayed){

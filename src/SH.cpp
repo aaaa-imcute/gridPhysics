@@ -142,7 +142,7 @@ bool raycast_SH(glm::dvec3& result,double& length,double coeff[], glm::dvec3 ori
 	do {
 		glm::dvec3 ray = origin + normal * t;
 		double rad = glm::length(ray), th = acos(ray.y / rad), ph = atan2(ray.z, ray.x);
-		double f = rad - get_terrain_height(coeff, th, ph, level)-1;
+		double f = rad - get_terrain_height(coeff, th, ph, level) - 1;
 		double df = dRaycastingSH(coeff, origin, normal, t, level);
 		dt = f / df;
 		t -= dt;
