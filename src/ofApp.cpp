@@ -2,9 +2,7 @@
 
 GridElement root("test", 1);
 GridElement t("test2", 1);
-PhysicsGrid p(make_shared<GridElement>(root), {680000,0,0}, { 0,0,4000/*2278.9316*/ },planets[0],0);
-//more precise orbital velocity than 2279 so I don't confuse actual errors with
-//p.orbit.a being about 680040
+PhysicsGrid p(make_shared<GridElement>(root), {680000,0,0}, { 0,0,2278.9316}, planets[0], 0);
 void ofApp::setup(){
 	compute_legendre_coeff();
 	ofDisableAntiAliasing();
@@ -67,15 +65,15 @@ void ofApp::draw(){
 		sunLight->enable();
 		camera.begin();
 		ofEnableDepthTest();
-		p.displayMode1(totalTime);
 		for (int i = 0; i < planets.size();i++) {
 			planets[i]->displayMode1(totalTime,i);
 		}
+		ofDisableLighting();
+		sunLight->disable();
+		p.displayMode1(totalTime);
 		//ofDrawAxis(256);
 		ofDisableDepthTest();
 		camera.end();
-		sunLight->disable();
-		ofDisableLighting();
 		break;
 	case 2:
 		ofPushMatrix();
@@ -97,13 +95,13 @@ void ofApp::draw(){
 			if (p.soi != planets[i])continue;
 			planets[i]->displayMode3(p.position, i);
 		}
-		//p.displayMode3();
+		p.displayMode3();
 		ofDrawAxis(256);
 		//ofDrawArrow({0,0,0}, p.avel*100.0, 20.0);
 		ofDisableDepthTest();
 		camera.end();
-		sunLight->disable();
 		ofDisableLighting();
+		sunLight->disable();
 		break;
 	}
 }

@@ -324,11 +324,14 @@ public:
 		double M = v + meanMotion() * t;
 		if (e < 1) {
 			M = ffmod(M, 2 * PI);
-			double E = M + 0.5 * e * sin(M);//M + e * sin(M) + 0.5 * e * e * sin(2 * M);
+			if (e < 1e-3) return M;//that is a big epsilon because
+			//the error is epsilon squared here
+			double E = M + e * sin(M) + 0.5 * e * e * sin(2 * M);
 			double dE = 10000;
 			while (abs(dE) > 1e-12) {
-				dE = (E - e * sin(E) - M) / (e * cos(E) - 1);
-				E += dE;
+				dE = (E - e * sin(E) - M) / (1 - e * cos(E));
+				E -= dE;
+				E = ffmod(E, 2 * PI);
 			}
 			return 2 * atan2(sqrt(1 + e) * sin(E / 2), sqrt(1 - e) * cos(E / 2));
 		}
@@ -336,8 +339,8 @@ public:
 			double H = asinh(M / e);//ofSign(M) * log(2 * abs(M) / e + 1.8);
 			double dH = 10000;
 			while (abs(dH) > 1e-12) {
-				dH = (e * sinh(H) - H - M) / (1 - e * cosh(H));
-				H += dH;
+				dH = (e * sinh(H) - H - M) / (e * cosh(H) - 1);
+				H -= dH;
 			}
 			return 2 * atan2(sqrt(e + 1) * sinh(H / 2), sqrt(e - 1) * cosh(H / 2));
 		}
@@ -349,11 +352,19 @@ public:
 			glm::angleAxis(i, glm::dvec3(1, 0, 0)) *
 			glm::angleAxis(o, glm::dvec3(0, 1, 0));
 		return glm::mat4_cast(q);
+		/*
+		glm::dquat q_o = glm::angleAxis(o, glm::dvec3(0, 1, 0));
+		glm::dquat q_i = glm::angleAxis(i, glm::rotate(q_o, glm::dvec3(1, 0, 0)));
+		glm::dquat q_w = glm::angleAxis(w, glm::rotate(q_i * q_o, glm::dvec3(0, 1, 0)));
+
+		glm::dquat q = q_w * q_i * q_o;
+		return glm::mat4_cast(q);
+		*/
 	}
 	glm::dvec3 tpos(double n) {
 		//input:true anomaly
 		double r = a * (1 - e * e) / (1 + e * cos(n));
-		glm::dvec4 ret(r * cos(n), r * sin(n),0.0, 1.0);
+		glm::dvec4 ret(r * cos(n), 0.0, r * sin(n), 1.0);
 		ret = mat() * ret;
 		return glm::dvec3(ret);
 	}
@@ -375,18 +386,42 @@ public:
 	};
 	void set(glm::dvec3 r, glm::dvec3 V, double t) {
 		//relative position and velocity
-		glm::dvec3 h = glm::cross(r, V), N(-h.y, h.x, 0);
+		glm::dvec3 h = glm::cross(r, V);
+		glm::dvec3 N = glm::cross(glm::dvec3(0, 1, 0), h);
 		glm::dvec3 E = glm::cross(V, h) / p->gravity - glm::normalize(r);
 		double ep = glm::length2(V) / 2 - p->gravity / glm::length(r);
 		a = -p->gravity / (2 * ep);
 		e = glm::length(E);
-		i = acos(h.z / glm::length(h));
-		o = acos(N.x / glm::length(N));
-		if (N.y < 0)o = 2 * PI - o;
-		w = acos(glm::dot(N, E) / (glm::length(N) * glm::length(E)));
-		if (E.z < 0)w = 2 * PI - w;
-		double n = acos(glm::dot(E, r) / (glm::length(E) * glm::length(r)));
-		if (glm::dot(r, V) < 0)n = 2 * PI - n;
+		i = ffmod(acos(glm::clamp(h.y / glm::length(h), -1.0, 1.0)), 2 * PI);
+		if (isnan(i))i = 0;
+		o = ffmod(acos(glm::clamp(N.x / glm::length(N), -1.0, 1.0)), 2 * PI);
+		if (N.z < 0)o = 2 * PI - o;
+		w = ffmod(acos(glm::clamp(glm::dot(N, E) / (glm::length(N) * glm::length(E)), -1.0, 1.0)), 2 * PI);
+		if (E.y < 0)w = 2 * PI - w;
+		if (isnan(o)) {
+			o = 0;
+			w = ffmod(atan2(E.z, E.x), 2 * PI);
+			if (h.y < 0)w = 2 * PI - w;
+		}
+		if (isnan(w))w = 0;
+		double n = -ffmod(acos(glm::clamp(glm::dot(E, r) / (glm::length(E) * glm::length(r)), -1.0, 1.0)), 2 * PI);
+		//its negative for some weird reason
+		if (glm::dot(r, V) < 0) n = 2 * PI - n;
+		if (isnan(n)) {
+			n = ffmod(acos(glm::clamp(glm::dot(N, r) / (glm::length(N) * glm::length(r)), -1.0, 1.0)), 2 * PI);
+			if (r.y < 0) n = 2 * PI - n;
+			if (isnan(n)) {
+				n = ffmod(acos(glm::clamp(r.x / glm::length(r), -1.0, 1.0)), 2 * PI);
+				if (V.x > 0) n = 2 * PI - n;
+			}
+		}
+		/*
+		double n = atan2(
+			glm::dot(r, glm::cross(h, E)) / (glm::length(h) * e * glm::length(r)), 
+			glm::dot(E, r) / (glm::length(h) * glm::length(r))
+		);
+		n = ffmod(n, 2 * PI);
+		*/
 		double M;
 		if (e < 1) {
 			//M = atan2(sqrt(1 - e * e) * sin(n), e + cos(n)) - e * sqrt(1 - e * e) * sin(n) / (1 + e * cos(n));
@@ -469,12 +504,13 @@ void Planet::displayMode1(double t,int planetI) {
 	tex.bind();
 	brush.draw();
 	tex.unbind();
-	glm::dvec3 rayDir = glm::normalize(-ref),rayHit;
-	double length;
-	if (raycast_SH(rayHit, length, terrain.coeff, ref, rayDir, MAX_SH_LEVEL)) {
+	/*
+	glm::dvec3 rayDir = glm::normalize(-ref), rayHit;
+	if (raycastSH_c(rayHit, terrain.coeff, ref, rayDir)) {
 		ofSetColor(255, 0, 0);
 		ofDrawSphere(glm::vec3(radius * orbitScale * rayHit), 16);
 	}
+	*/
 	ofTranslate(-glm::vec3(p));//superfluous but i'll keep it here because why not
 	ofPopMatrix();
 	if(o!=nullptr)o->displayMode1(t);
@@ -500,15 +536,16 @@ void Planet::displayMode3(glm::dvec3 shipPos, int planetI) {
 	t.bind();
 	brush.draw();
 	t.unbind();
-	glm::dvec3 rayDir = glm::normalize(-cameraPos),rayHit;
-	double length;
-	if (raycast_SH(rayHit, length, terrain.coeff, ref, rayDir, MAX_SH_LEVEL)) {
+	/*
+	glm::dvec3 rayDir = glm::normalize(-cameraPos), rayHit;
+	if (raycastSH_c(rayHit, terrain.coeff, ref, rayDir)) {
 		ofSetColor(255, 0, 0);
 		glm::dvec3 actualHit = radius * rayHit - shipPos;
 		ofDrawSphere(glm::vec3(actualHit), 16000);
 		//remember that the radius is in real coordinates rn
 		//a sphere of 16 is not visible lol
 	}
+	*/
 	ofPopMatrix();
 }
 void createPlanetAtlas(){

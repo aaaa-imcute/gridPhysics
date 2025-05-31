@@ -120,35 +120,33 @@ void compute_legendre_coeff() {
 #include "del_sh.inl"
 #undef DERIVATIVE_PH
 #undef FUNC_NAME
-double dRaycastingSH(double coeff[], glm::dvec3 origin, glm::dvec3 normal, double t, int level) {
-	//TODO testing
-	double EP = 1e-8;
-	glm::dvec3 ray = origin + normal * t;
-	double r = glm::length(ray), th = acos(ray.y / r), ph = atan2(ray.z, ray.x);
-	double dr = glm::dot(normal, ray) / r;
-	double dth = -(r * normal.y - ray.y * dr) / (r * r * sqrt(1 - (ray.y / r) * (ray.y / r)));
-	double dph = ray.x * ray.x + ray.z * ray.z;
-	if (abs(dph) < 1e-8) dph = 0;
-	else dph = (ray.x * normal.z - ray.z * normal.x) / dph;
-	return dr - get_terrain_height_dth(coeff, th, ph, level) * dth - get_terrain_height_dph(coeff, th, ph, level) * dph;
-}
-bool raycast_SH(glm::dvec3& result,double& length,double coeff[], glm::dvec3 origin, glm::dvec3 normal, int level) {
-	//TODO:Fix
-	double EP = 1e-8;
-	double t = 0;//hope that we start outside the sphere ig
-	double dt = 0;//uninitialized memory warning blah blah
-	const int MAX_ITER = 20;
-	int i = 0;
-	do {
-		glm::dvec3 ray = origin + normal * t;
-		double rad = glm::length(ray), th = acos(ray.y / rad), ph = atan2(ray.z, ray.x);
-		double f = rad - get_terrain_height(coeff, th, ph, level) - 1;
-		double df = dRaycastingSH(coeff, origin, normal, t, level);
-		dt = f / df;
-		t -= dt;
-		if (isnan(dt) || isinf(dt) || abs(dt) > 1.0 / EP || t<0 || ++i>MAX_ITER)return false;
-	} while (abs(dt) > EP);
-	result = origin + normal * t;
-	length = t;
-	return true;
-}
+
+#define RET_CONTACT
+#define FUNC_NAME raycastSH_c
+#include "raycastSH.inl"
+#undef FUNC_NAME
+#define RET_LENGTH
+#define FUNC_NAME raycastSH_cl
+#include "raycastSH.inl"
+#undef FUNC_NAME
+#define RET_GRADIENT
+#define FUNC_NAME raycastSH_clg
+#include "raycastSH.inl"
+#undef FUNC_NAME
+#undef RET_LENGTH
+#define FUNC_NAME raycastSH_cg
+#include "raycastSH.inl"
+#undef FUNC_NAME
+#undef RET_CONTACT
+#define FUNC_NAME raycastSH_g
+#include "raycastSH.inl"
+#undef FUNC_NAME
+#define RET_LENGTH
+#define FUNC_NAME raycastSH_lg
+#include "raycastSH.inl"
+#undef FUNC_NAME
+#undef RET_GRADIENT
+#define FUNC_NAME raycastSH_l
+#include "raycastSH.inl"
+#undef RET_LENGTH
+#undef FUNC_NAME
