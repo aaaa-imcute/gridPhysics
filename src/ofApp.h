@@ -163,28 +163,28 @@ class Terrain {
 public:
 	double coeff[(MAX_SH_LEVEL + 1) * (MAX_SH_LEVEL + 1)];
 	int generated = 0;
-	double maxHeight = 0;
+	double maxHeight = 0, lipschitz = 0;
 	void generate(unsigned int seed, int L,double A,double a) {
 		//if a planet isn't generated,it will render as a sphere(gas giant),so don't if it actually is!
 		//seed fineness amplitude(ratio of mountains to planet radius) smoothness(more than 2)
 		mt19937 rng(seed);
 		int index = 0;
+		maxHeight = 0;
+		lipschitz = 0;
 		for (int l = 0; l <= L; l++) {
 			double var = A / pow(1 + l, a);
+			normal_distribution<double> d(0, var);
 			for (int m = -l; m <= l; m++) {
-				normal_distribution<double> d(0, var);
-				//yes,i don't need a new distribution every m,only every l,
-				//but previously i did this so it sticks(so i know what the planet should look like)
-				coeff[index++]=d(rng);
+				double height = d(rng);
+				coeff[index++]=height;
+				maxHeight += height * height;
+				lipschitz += l * l * height * height;
 			}
 		}
+		maxHeight *= 2 * sqrt(log(L + 1));//blah blah blah extreme value of gaussian
+		lipschitz *= 2 * sqrt(log(L + 1));//this has a 1/((L+1)^2*sqrt(8pilog(L+1))) chance to fail
+		//current settings it is about 1/1138
 		generated = L;
-		maxHeight = -1;//TODO:improve maxHeight accuracy?
-		for (double th = 0; th < PI; th += PI / 256) {
-			for (double ph = 0; ph < 2 * PI; ph += PI / 128) {
-				maxHeight = max(get(th, ph), maxHeight);
-			}
-		}
 	}
 	double get(double th, double ph, int level = -1) {
 		//returns relative altitude not distance to planet center,need to +1 then *radius
@@ -504,13 +504,13 @@ void Planet::displayMode1(double t,int planetI) {
 	tex.bind();
 	brush.draw();
 	tex.unbind();
-	/*
+	
 	glm::dvec3 rayDir = glm::normalize(-ref), rayHit;
-	if (raycastSH_c(rayHit, terrain.coeff, ref, rayDir)) {
+	if (raycastSH_c(rayHit, terrain.coeff, terrain.lipschitz, terrain.maxHeight, ref, rayDir)) {
 		ofSetColor(255, 0, 0);
 		ofDrawSphere(glm::vec3(radius * orbitScale * rayHit), 16);
 	}
-	*/
+	
 	ofTranslate(-glm::vec3(p));//superfluous but i'll keep it here because why not
 	ofPopMatrix();
 	if(o!=nullptr)o->displayMode1(t);
@@ -536,16 +536,16 @@ void Planet::displayMode3(glm::dvec3 shipPos, int planetI) {
 	t.bind();
 	brush.draw();
 	t.unbind();
-	/*
+	
 	glm::dvec3 rayDir = glm::normalize(-cameraPos), rayHit;
-	if (raycastSH_c(rayHit, terrain.coeff, ref, rayDir)) {
+	if (raycastSH_c(rayHit, terrain.coeff, terrain.lipschitz, terrain.maxHeight, ref, rayDir)) {
 		ofSetColor(255, 0, 0);
 		glm::dvec3 actualHit = radius * rayHit - shipPos;
 		ofDrawSphere(glm::vec3(actualHit), 16000);
 		//remember that the radius is in real coordinates rn
 		//a sphere of 16 is not visible lol
 	}
-	*/
+	
 	ofPopMatrix();
 }
 void createPlanetAtlas(){

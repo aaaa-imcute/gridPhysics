@@ -129,23 +129,7 @@ void compute_legendre_coeff() {
 #define FUNC_NAME raycastSH_cl
 #include "raycastSH.inl"
 #undef FUNC_NAME
-#define RET_GRADIENT
-#define FUNC_NAME raycastSH_clg
-#include "raycastSH.inl"
-#undef FUNC_NAME
-#undef RET_LENGTH
-#define FUNC_NAME raycastSH_cg
-#include "raycastSH.inl"
-#undef FUNC_NAME
 #undef RET_CONTACT
-#define FUNC_NAME raycastSH_g
-#include "raycastSH.inl"
-#undef FUNC_NAME
-#define RET_LENGTH
-#define FUNC_NAME raycastSH_lg
-#include "raycastSH.inl"
-#undef FUNC_NAME
-#undef RET_GRADIENT
 #define FUNC_NAME raycastSH_l
 #include "raycastSH.inl"
 #undef RET_LENGTH
