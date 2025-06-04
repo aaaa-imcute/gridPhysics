@@ -504,13 +504,13 @@ void Planet::displayMode1(double t,int planetI) {
 	tex.bind();
 	brush.draw();
 	tex.unbind();
-	
+	/*
 	glm::dvec3 rayDir = glm::normalize(-ref), rayHit;
 	if (raycastSH_c(rayHit, terrain.coeff, terrain.lipschitz, terrain.maxHeight, ref, rayDir)) {
 		ofSetColor(255, 0, 0);
 		ofDrawSphere(glm::vec3(radius * orbitScale * rayHit), 16);
 	}
-	
+	*/
 	ofTranslate(-glm::vec3(p));//superfluous but i'll keep it here because why not
 	ofPopMatrix();
 	if(o!=nullptr)o->displayMode1(t);
@@ -536,7 +536,7 @@ void Planet::displayMode3(glm::dvec3 shipPos, int planetI) {
 	t.bind();
 	brush.draw();
 	t.unbind();
-	
+	/*
 	glm::dvec3 rayDir = glm::normalize(-cameraPos), rayHit;
 	if (raycastSH_c(rayHit, terrain.coeff, terrain.lipschitz, terrain.maxHeight, ref, rayDir)) {
 		ofSetColor(255, 0, 0);
@@ -545,7 +545,7 @@ void Planet::displayMode3(glm::dvec3 shipPos, int planetI) {
 		//remember that the radius is in real coordinates rn
 		//a sphere of 16 is not visible lol
 	}
-	
+	*/
 	ofPopMatrix();
 }
 void createPlanetAtlas(){
@@ -913,7 +913,9 @@ public:
 		position = position + velocity * dt + glm::dvec3(acc * (dt * dt / 2));
 		velocity = velocity + accel * dt;//estimate(for drag and other speed related forces)
 		//TODO
+#ifndef TEST_FLYING
 		acc += position * (-soi->gravity / pow(glm::length(position),3));//gravity
+#endif
 		velocity = velocity + (acc - accel) * (dt / 2.0);//factor in actual acceleration
 		accel = acc;
 		orbit.set(position, velocity, t);

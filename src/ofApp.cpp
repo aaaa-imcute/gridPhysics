@@ -1,8 +1,8 @@
 #include "ofApp.h"
-
+//#define TEST_FLYING
 GridElement root("test", 1);
 GridElement t("test2", 1);
-PhysicsGrid p(make_shared<GridElement>(root), { 680000,0,0 }, { 0,0,2278.9316 }, planets[0], 0);
+PhysicsGrid p(make_shared<GridElement>(root), { 680000,0,0 }, { 0,0,0*2278.9316 }, planets[0], 0);
 void ofApp::setup(){
 	compute_legendre_coeff();
 	ofDisableAntiAliasing();
@@ -87,6 +87,21 @@ void ofApp::draw(){
 		ofPopMatrix();
 		break;
 	case 3:
+#ifdef TEST_FLYING
+		glm::dvec3 cameraPos = camera.getGlobalPosition();
+		glm::dvec3 ref = (cameraPos + p.position)/ planets[0]->radius;
+		glm::dvec3 rayDir = glm::normalize(-cameraPos), rayHit;
+		if (mouse[0]&&raycastSH_c(
+			rayHit,
+			planets[0]->terrain.coeff,
+			planets[0]->terrain.lipschitz,
+			planets[0]->terrain.maxHeight,
+			ref,
+			rayDir
+		)) {
+			p.position = planets[0]->radius * rayHit;
+		}
+#endif
 		ofEnableLighting();
 		sunLight->enable();
 		camera.begin();
