@@ -2,7 +2,8 @@
 //#define TEST_FLYING
 GridElement root("test", 1);
 GridElement t("test2", 1);
-PhysicsGrid p(make_shared<GridElement>(root), { 680000,0,0 }, { 0,0,0*2278.9316 }, planets[0], 0);
+PhysicsGrid p(make_shared<GridElement>(root), { 574140,0,0 }, { -1,0,0 }, planets[0], 0);
+//orbital speed at 680000=2278.9316
 void ofApp::setup(){
 	compute_legendre_coeff();
 	ofDisableAntiAliasing();
@@ -24,9 +25,7 @@ void ofApp::setup(){
 		return plains.getLerped(mountains, h * 2 - 1);
 		};
 	createPlanetAtlas();
-	planets[0]->terrain.generate(436, MAX_SH_LEVEL, 0.1, 2/*, true*/);
-	//planets[0]->terrain.coeff[0][0] = 0;
-	//planets[0]->mesh = planets[0]->terrain.mesh({0,0,1},2);
+	planets[0]->terrain.generate(436, 0.1, 2);
 	t.rotateRightFace();
 	p.setItem(make_shared<GridElement>(t), 0, 1, 0);
 }
@@ -38,7 +37,7 @@ void ofApp::update(){
 	if (sceneDisplayed != 2) {
 		remainingSimulation += ofGetLastFrameTime();
 		for (; remainingSimulation > PHYSICS_DT; remainingSimulation -= PHYSICS_DT) {
-			p.updatePhysics(totalTime,PHYSICS_DT);
+			//p.updatePhysics(totalTime,PHYSICS_DT);
 			totalTime += PHYSICS_DT;
 		}
 	}
@@ -102,21 +101,30 @@ void ofApp::draw(){
 			p.position = planets[0]->radius * rayHit;
 		}
 #endif
-		ofEnableLighting();
-		sunLight->enable();
+		//ofEnableLighting();
+		//sunLight->enable();
 		camera.begin();
 		ofEnableDepthTest();
 		for (int i = 0; i < planets.size(); i++) {
 			if (p.soi != planets[i])continue;
 			planets[i]->displayMode3(p.position, i);
 		}
-		//p.displayMode3();
+		p.displayMode3();
 		ofDrawAxis(256);
+		double time = p.checkCollision(10);
+		if (time < 10) {
+			glm::dvec3 newpos = p.position + p.velocity * time;
+			ofDrawSphere((newpos-p.position)*DM3_SCALE, DM3_SCALE);
+		}
 		//ofDrawArrow({0,0,0}, p.avel*100.0, 20.0);
 		ofDisableDepthTest();
 		camera.end();
-		ofDisableLighting();
-		sunLight->disable();
+		//ofDisableLighting();
+		//sunLight->disable();
+		ofPushStyle();
+		ofSetColor(255, 255, 0);
+		ofDrawBitmapString(to_string(planets[0]->radius*(planets[0]->terrain.get(p.position)+1)), 100, 100);
+		ofPopStyle();
 		break;
 	}
 }

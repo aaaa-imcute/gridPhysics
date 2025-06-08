@@ -162,16 +162,16 @@ void make_orthonormal_basis(const glm::dvec3& N, glm::dvec3& T, glm::dvec3& B) {
 class Terrain {
 public:
 	double coeff[(MAX_SH_LEVEL + 1) * (MAX_SH_LEVEL + 1)];
-	int generated = 0;
+	bool generated = false;
 	double maxHeight = 0, lipschitz = 0;
-	void generate(unsigned int seed, int L,double A,double a) {
+	void generate(unsigned int seed,double A,double a) {
 		//if a planet isn't generated,it will render as a sphere(gas giant),so don't if it actually is!
 		//seed fineness amplitude(ratio of mountains to planet radius) smoothness(more than 2)
 		mt19937 rng(seed);
 		int index = 0;
 		maxHeight = 0;
 		lipschitz = 0;
-		for (int l = 0; l <= L; l++) {
+		for (int l = 0; l <= MAX_SH_LEVEL; l++) {
 			double var = A / pow(1 + l, a);
 			normal_distribution<double> d(0, var);
 			for (int m = -l; m <= l; m++) {
@@ -181,14 +181,14 @@ public:
 				lipschitz += l * l * height * height;
 			}
 		}
-		maxHeight *= 2 * sqrt(log(L + 1));//blah blah blah extreme value of gaussian
-		lipschitz *= 2 * sqrt(log(L + 1));//this has a 1/((L+1)^2*sqrt(8pilog(L+1))) chance to fail
+		maxHeight *= 2 * sqrt(log(MAX_SH_LEVEL + 1));//blah blah blah extreme value of gaussian
+		lipschitz *= 2 * sqrt(log(MAX_SH_LEVEL + 1));//this has a 1/((L+1)^2*sqrt(8pilog(L+1))) chance to fail
 		//current settings it is about 1/1138
-		generated = L;
+		generated = true;
 	}
 	double get(double th, double ph, int level = -1) {
 		//returns relative altitude not distance to planet center,need to +1 then *radius
-		if (level == -1 || level > generated)level = generated;
+		if (level == -1)level = MAX_SH_LEVEL;
 		return get_terrain_height(coeff, th, ph, MAX_SH_LEVEL);
 	}
 	double get(glm::dvec3 v, int level = -1) {
@@ -203,7 +203,7 @@ public:
 		int points = 64;
 		double r = glm::length(ref);
 		glm::dvec3 norm = ref / r;
-		if (generated==0||r>16) {
+		if (!generated||r>16) {
 			ofSpherePrimitive sphere;
 			sphere.setRadius(256);
 			sphere.setResolution(points);
@@ -518,7 +518,7 @@ void Planet::displayMode1(double t,int planetI) {
 void Planet::displayMode3(glm::dvec3 shipPos, int planetI) {
 	ofPushMatrix();//superfluous but i'll keep it here because why not
 	ofFill();
-	glm::dvec3 cameraPos = camera.getGlobalPosition();
+	glm::dvec3 cameraPos = glm::dvec3(0, 0, 0);//camera.getGlobalPosition()/DM3_SCALE;
 	glm::dvec3 ref = cameraPos + shipPos;
 	double r = glm::length(ref);
 	double ter = 1 + terrain.get(ref);
@@ -531,7 +531,7 @@ void Planet::displayMode3(glm::dvec3 shipPos, int planetI) {
 	mesh.clear();//probably superfluous
 	terrain.mesh(mesh,ref, planetI, true);
 	of3dPrimitive brush = { mesh };
-	brush.setScale(radius/DM3_SCALE);
+	brush.setScale(radius);
 	ofTexture t = planetAtlas.getTexture();
 	t.bind();
 	brush.draw();
@@ -682,9 +682,8 @@ glm::dvec3 selectedPos;
 class PhysicsGrid {
 public:
 	shared_ptr<Planet> soi;
-	glm::dvec3 position;//need high-precision
-	glm::dvec3 velocity;//doesn't need high-precision but unfortunately glm::dvec3 are floats
-	//bottleneck on fixedpoint_prec is the handling of small accelerations
+	glm::dvec3 position;//position of COM now
+	glm::dvec3 velocity;
 	glm::dvec3 accel;//verlet internal
 	glm::dquat angle;
 	glm::dvec3 avel;//along axis of rotation,magnitude is amount and direction of rotation
@@ -772,7 +771,7 @@ public:
 		ofScale(1, 1, -1);
 		glm::mat4 matr = glm::toMat4(angle);
 		ofMultMatrix(matr);
-		ofTranslate(glm::vec3(-COM)*DM3_SCALE);
+		ofTranslate(glm::vec3(-COM * DM3_SCALE));
 		ofTexture t = atlas.getTexture();
 		t.bind();
 		brush.draw();
@@ -783,13 +782,16 @@ public:
 	void updateGrid() {
 		if (contents.size() == 0)throw "empty ship";
 		mass = 0;
-		COM = glm::dvec3(0, 0, 0);//TODO:Fix COM calculation
+		position -= glm::rotate(angle, COM);//so that the positions of the old blocks do not change after editing
+		//need testing tho
+		COM = glm::dvec3(0, 0, 0);
 		for (auto& ptr : contents) {
 			if (ptr.second == nullptr)continue;
 			mass += ptr.second->mass;
 			COM += (keyPos(ptr.first)+glm::dvec3(0.5,0.5,0.5)) * ptr.second->mass;
 		}
 		COM /= mass;
+		position += glm::rotate(angle, COM);
 		inertialTensor = glm::dmat3(0.0);
 		for (auto& ptr : contents) {
 			if (ptr.second == nullptr)continue;
@@ -863,7 +865,18 @@ public:
 			}
 		}
 		brush = { mesh };
-
+		radius = 0;
+		for (auto& ptr : contents) {
+			if (ptr.second == nullptr)continue;
+			glm::dvec3 pos = keyPos(ptr.first) + glm::dvec3(0.5, 0.5, 0.5);
+			pos.x += glm::sign(pos.x) / 2;
+			pos.y += glm::sign(pos.y) / 2;
+			pos.z += glm::sign(pos.z) / 2;
+			if (pos.x == 0)pos.x = 0.5;//edge case,sign()==0
+			if (pos.y == 0)pos.y = 0.5;
+			if (pos.z == 0)pos.z = 0.5;
+			if (glm::length(pos) > radius)radius = glm::length(pos);
+		}
 	}
 	void updatePhysics(double t, double dt) {
 		/*
@@ -897,15 +910,13 @@ public:
 			orbit.set(position, velocity, t);
 		}
 		glm::dvec3 torque;
-		//torque = { 0.1,0,0 };
+		//torque = { 0,0.1,0.1 };
 		//TODO
 		avel += glm::inverse(inertialTensor) * torque * dt;
 		double l = glm::length(avel) * (dt / 2);
 		if (l != 0) {
 			glm::dvec3 n = glm::normalize(avel);
-			glm::dquat d(0, n.x, n.y, n.z);
-			d *= sin(l);
-			d.w = cos(l);
+			glm::dquat d = glm::angleAxis(glm::length(avel) * dt, n);
 			angle = d * angle;
 			angle = glm::normalize(angle);
 		}
@@ -914,16 +925,119 @@ public:
 		velocity = velocity + accel * dt;//estimate(for drag and other speed related forces)
 		//TODO
 #ifndef TEST_FLYING
-		acc += position * (-soi->gravity / pow(glm::length(position),3));//gravity
+		//acc += position * (-soi->gravity / pow(glm::length(position),3));//gravity
 #endif
 		velocity = velocity + (acc - accel) * (dt / 2.0);//factor in actual acceleration
 		accel = acc;
 		orbit.set(position, velocity, t);
 	}
+	double checkCollision(double maxDT) {
+		//return +inf for no result,otherwise return time to collision
+		
+		//spheremarch sphere of radius radius(copied and modified from raycast function)
+		double lipschitz = soi->terrain.lipschitz;
+		double EP = 1e-8;
+		double t = 0, dt = 0;
+		double cor = sqrt(1 + lipschitz * lipschitz);
+		double r, th, ph;
+		glm::dvec3 ray, normal = glm::normalize(velocity);
+		glm::dvec3 pos,localpos;
+		glm::dquat ang;
+		double l_of_avel = glm::length(avel), ta, tb, speed = glm::length(velocity);
+		glm::dvec3 rb, thb, phb, sn, cc;
+		double alt, rho, dts;
+		double scd = 1;//if the sphere casting direction is into the planet
+		double tta, time;
+		bool bisection;
+		double step = maxDT/100;//artificially introduce tunnelling :(
+		//maxDT is expected to be PHYSICS_DT
+		//design the tunnelling around that
+		//at the same time the divisor(here 100) represents how many steps the linear searching does
+		//in total in the worst case
+		while (1) {//avoid problems where the second spherecast hits but not the first
+			do {
+				ray = position / soi->radius + normal * t;
+				r = glm::length(ray);
+				if (
+					r > 1 + soi->terrain.maxHeight+radius / soi->radius * cor && 
+					glm::dot(ray, normal) > 0
+					)return numeric_limits<double>::infinity();
+				th = acos(ray.y / r);
+				ph = atan2(ray.z, ray.x);
+				dt = scd * (r - radius / soi->radius * cor - 1 - get_terrain_height(soi->terrain.coeff, th, ph, MAX_SH_LEVEL)) / cor;
+				t += dt;
+				if (t * soi->radius / speed > maxDT) {
+					if (scd == 1)return numeric_limits<double>::infinity();
+					//if the raycast is exiting the planet we still have one last interval
+					tb = maxDT;
+					break;
+				}
+				if (dt * soi->radius < EP) {
+					if (scd==1) {
+						ta = t * soi->radius / speed;
+						t += step * speed / soi->radius;
+					}
+					else {
+						tb = t * soi->radius / speed;
+						break;
+					}
+					scd = -scd;
+				}
+			} while (1);
+			if (tb < ta)throw "backwards spherecasting lol";
+			//bisect the time and do actual specific calculations to compute exact time
+			tta = ta;//make sure there is actually a result
+			bisection = false;
+			time = tb;
+			do {
+				//initialization
+				pos = position + velocity * time;
+				if (l_of_avel != 0) {
+					glm::dvec3 n = glm::normalize(avel);
+					glm::dquat d = glm::angleAxis(l_of_avel * time, n);
+					ang = d * angle;
+				}
+				else {
+					ang = angle;
+				}
+				//calculate planet plane normal and distance to COM
+				//(not assuming the planet is locally a plane is impractical)
+				alt = glm::length(pos);
+				th = acos(pos.y / alt);
+				ph = atan2(pos.z, pos.x);
+				rho = sqrt(pos.x * pos.x + pos.z * pos.z);
+				rb = pos / alt;
+				thb = glm::dvec3(pos.x * pos.y, pos.z * pos.y, -rho * rho) / (alt * rho);
+				phb = glm::dvec3(-pos.y, pos.x, 0) / rho;
+				sn =
+					rb +
+					thb * (get_terrain_height_dth(soi->terrain.coeff, th, ph, MAX_SH_LEVEL) / alt) +
+					phb * (get_terrain_height_dph(soi->terrain.coeff, th, ph, MAX_SH_LEVEL) / (alt * sin(th)));
+				dts = alt - soi->radius * (1 + get_terrain_height(soi->terrain.coeff, th, ph, MAX_SH_LEVEL));
+				cc = glm::dvec3(0.5, 0.5, 0.5);
+				cc = glm::rotate(ang, cc);
+				cc = cc * glm::dvec3(ofSign(-sn.x), ofSign(-sn.y), ofSign(-sn.z));
+				//loop over parts and calculate intersection
+				for (auto& ptr : contents) {
+					localpos = glm::rotate(ang, keyPos(ptr.first) - COM) + cc;
+					if (glm::dot(-sn, localpos) < dts) continue;
+					//a collision has happened
+					//for the linear search it means it is okay to do bisection now if tb is time
+					bisection = true;
+					tb = time;
+					break;
+				}
+				if(tb != time)ta = time;
+				if (bisection)time = (ta + tb) / 2;
+				else time -= step;
+			} while (tb - ta > EP);
+			if(bisection)return ta;
+		}
+	}
 private:
 	unordered_map<string,shared_ptr<GridElement>> contents;
 	//y points down,z points right,x points forwards in that order
-	double mass;
+	double mass,radius;//radius of bounding sphere
 	glm::dvec3 COM;//ship coordinates
 	glm::dmat3 inertialTensor;
 	of3dPrimitive brush;
