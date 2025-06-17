@@ -96,13 +96,6 @@ void ofApp::draw(){
 		}
 		p.displayMode3();
 		ofDrawAxis(256);
-		//ofDrawSphere((testcol - p.position) * DM3_SCALE, DM3_SCALE);
-		//ofDrawArrow((testcol - p.position) * DM3_SCALE, (testcol + testcol2 - p.position) * DM3_SCALE, DM3_SCALE / 16);
-		//ofDrawArrow((testcol3 - p.position) * DM3_SCALE, (testcol3 + testcol4 - p.position) * DM3_SCALE, DM3_SCALE / 16);
-		for (auto& ptr : colccs) {
-			ofDrawArrow((ptr.first - p.position) * DM3_SCALE, (ptr.first + ptr.second - p.position) * DM3_SCALE, DM3_SCALE / 16);
-		}
-		drawPlaneWithNormal(plane, planedist * DM3_SCALE, 1000);
 		ofDisableDepthTest();
 		camera.end();
 		ofPopMatrix();

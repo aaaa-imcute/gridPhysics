@@ -717,10 +717,6 @@ public:
 };
 shared_ptr<GridElement> selectedPart;//sceneDisplayed==2
 glm::dvec3 selectedPos;
-glm::dvec3 testcol,testcol2,testcol3,testcol4;
-vector<pair<glm::dvec3,glm::dvec3>> colccs;
-glm::dvec3 plane;
-double planedist;
 class PhysicsGrid {
 public:
 	shared_ptr<Planet> soi;
@@ -1060,16 +1056,12 @@ public:
 			//(not assuming the planet is locally a plane is impractical)
 			alt = glm::length(pos);
 			dts = alt - H * soi->radius;
-			plane = sn;
-			planedist = dts;
 			//closest corner to sn.effectively this is figuring out which octant sn points against
 			//and finding the corner there
 			cc = -0.5 * glm::sign(glm::inverse(ang) * sn);
 			//loop over parts and calculate intersection
-			colccs.clear();
 			for (auto& ptr : contents) {
 				localpos = glm::rotate(ang, ptr.first + glm::dvec3(0.5, 0.5, 0.5) - COM + cc);
-				colccs.push_back({ localpos + pos - ang * cc ,ang * cc });
 				if (glm::dot(-sn, localpos) < dts) continue;
 				//a collision has happened
 				//for the linear search it means it is okay to do bisection now if tb is time
@@ -1077,10 +1069,6 @@ public:
 				tb = time;
 				ret_position = localpos;
 				contact_normal = sn;
-				testcol = localpos + pos;
-				testcol2 = sn;
-				testcol3 = localpos - ang * cc + pos;
-				testcol4 = ang * cc;
 				break;
 			}
 			if (bisection) {
