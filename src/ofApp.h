@@ -49,6 +49,14 @@ double mapScale = 16;
 easyCam camera;//sceneDisplayed==1||sceneDisplayed==3
 shared_ptr<ofLight> sunLight;//pointer,otherwise error
 //TODO:move this into the any planet without an orbit(i.e the sun)
+namespace std {
+	template <>
+	struct hash<glm::dvec3> {
+		auto operator()(const glm::dvec3& x) const -> size_t {
+			return hash<glm::i32>{}(x.x) ^ (hash<glm::i32>{}(x.y) << 1) ^ (hash<glm::i32>{}(x.z) << 2);
+		}
+	};
+}//make it so that this can be the key of a unordered map(used in class PhysicsGrid)
 glm::dvec3 orbitPos;//sceneDisplayed==1
 double orbitScale=1.0/600;
 vector<string> faceNames = { "right","left","top","bottom","front","back" };
@@ -150,6 +158,35 @@ void getRectangleMesh(ofMesh& m, glm::dvec3 pos, glm::dvec3 width, glm::dvec3 he
 	getTriangleMesh(m, pos, pos + height, pos + width, apos, apos + ah, apos + aw);
 	getTriangleMesh(m, pos + width + height, pos + width, pos + height, apos + aw + ah, apos + aw, apos + ah);
 }
+void drawPlaneWithNormal(glm::dvec3 normal, float distance, float size) {
+	glm::vec3 unitNormal = glm::normalize(normal);
+	glm::vec3 center = -unitNormal * distance;
+
+	// Create a transformation that rotates Z-axis to the desired normal
+	glm::vec3 defaultNormal = glm::vec3(0, 0, 1);
+	glm::quat rotation = glm::rotation(defaultNormal, unitNormal);
+
+	// Setup the ofNode for transformation
+	ofNode node;
+	node.setPosition(center);
+	node.setOrientation(rotation);
+
+	// Create the plane primitive
+	ofPlanePrimitive plane;
+	plane.set(size, size, 2, 2);
+	plane.setPosition(0, 0, 0); // Will be drawn relative to node
+
+	// Apply transformation
+	ofPushMatrix();
+	ofMultMatrix(node.getGlobalTransformMatrix());
+
+	ofSetColor(150, 200, 255, 100);
+	plane.draw();
+	ofPopMatrix();
+	// Draw normal vector from center
+	ofSetColor(255, 0, 0);
+	ofDrawLine(center, center+unitNormal * (size / 2));
+}
 void make_orthonormal_basis(const glm::dvec3& N, glm::dvec3& T, glm::dvec3& B) {
 	if (fabs(N.x) > fabs(N.z)) {
 		T = glm::normalize(glm::dvec3(-N.y, N.x, 0.0));
@@ -161,7 +198,7 @@ void make_orthonormal_basis(const glm::dvec3& N, glm::dvec3& T, glm::dvec3& B) {
 }
 class Terrain {
 public:
-	double coeff[(MAX_SH_LEVEL + 1) * (MAX_SH_LEVEL + 1)];
+	double coeff[(MAX_SH_LEVEL + 1) * (MAX_SH_LEVEL + 1)] = {};
 	bool generated = false;
 	double maxHeight = 0, lipschitz = 0;
 	void generate(unsigned int seed,double A,double a) {
@@ -344,6 +381,7 @@ public:
 			}
 			return 2 * atan2(sqrt(e + 1) * sinh(H / 2), sqrt(e - 1) * cosh(H / 2));
 		}
+		//TODO:maybe I am...
 		throw "hey I'm not programming that case";
 	}
 	glm::dmat4 mat() {
@@ -679,6 +717,10 @@ public:
 };
 shared_ptr<GridElement> selectedPart;//sceneDisplayed==2
 glm::dvec3 selectedPos;
+glm::dvec3 testcol,testcol2,testcol3,testcol4;
+vector<pair<glm::dvec3,glm::dvec3>> colccs;
+glm::dvec3 plane;
+double planedist;
 class PhysicsGrid {
 public:
 	shared_ptr<Planet> soi;
@@ -687,6 +729,7 @@ public:
 	glm::dvec3 accel;//verlet internal
 	glm::dquat angle;
 	glm::dvec3 avel;//along axis of rotation,magnitude is amount and direction of rotation
+	//in local space apparently
 	OrbitalElements orbit;
 	PhysicsGrid(shared_ptr<GridElement> root, glm::dvec3 p, glm::dvec3 v,shared_ptr<Planet> planet,double t)
 	:orbit(planet,p,v,t){
@@ -706,15 +749,14 @@ public:
 		return getItem(glm::dvec3(x,y,z));
 	}
 	shared_ptr<GridElement> getItem(glm::dvec3 index) {
-		string i = keyString(index);
-		if (contents.find(i) == contents.end())return nullptr;
-		return contents[keyString(index)];
+		if (contents.find(index) == contents.end())return nullptr;
+		return contents[index];
 	}
 	shared_ptr<GridElement> setItem(shared_ptr<GridElement> e, int x, int y, int z) {
 		return setItem(e, glm::dvec3(x, y, z));
 	}
 	shared_ptr<GridElement> setItem(shared_ptr<GridElement> e, glm::dvec3 index) {
-		contents[keyString(index)] = e;
+		contents[index] = e;
 		updateGrid();
 		return e;
 	}
@@ -722,7 +764,7 @@ public:
 		removeItem({ (float)x,(float)y,(float)z });
 	}
 	void removeItem(glm::dvec3 v) {
-		contents.erase(keyString(v));
+		contents.erase(v);
 		updateGrid();
 	}
 	void displayMode1(double t) {
@@ -738,7 +780,7 @@ public:
 	}
 	void displayMode2(int y) {
 		for (auto& ptr : contents) {
-			glm::dvec3 pos = keyPos(ptr.first);
+			glm::dvec3 pos = ptr.first;
 			if (round(pos.y) != y) continue;
 			//in this scene,x+ goes up while z+ goes left
 			glm::dvec3 sPos(-pos.z * 16, -pos.x * 16, 0);
@@ -768,7 +810,6 @@ public:
 		brush.setGlobalPosition(0, 0, 0);
 		ofSetColor(255, 255, 255);
 		ofPushMatrix();
-		ofScale(1, 1, -1);
 		glm::mat4 matr = glm::toMat4(angle);
 		ofMultMatrix(matr);
 		ofTranslate(glm::vec3(-COM * DM3_SCALE));
@@ -788,14 +829,14 @@ public:
 		for (auto& ptr : contents) {
 			if (ptr.second == nullptr)continue;
 			mass += ptr.second->mass;
-			COM += (keyPos(ptr.first)+glm::dvec3(0.5,0.5,0.5)) * ptr.second->mass;
+			COM += (ptr.first+glm::dvec3(0.5,0.5,0.5)) * ptr.second->mass;
 		}
 		COM /= mass;
 		position += glm::rotate(angle, COM);
 		inertialTensor = glm::dmat3(0.0);
 		for (auto& ptr : contents) {
 			if (ptr.second == nullptr)continue;
-			glm::dvec3 pos = keyPos(ptr.first);
+			glm::dvec3 pos = ptr.first;
 			glm::dmat3 c(1.0 / 6);
 			//should also have side length squared but that is 1.mass is accounted for later
 			glm::dvec3 p = pos + glm::dvec3(0.5, 0.5, 0.5)-COM;
@@ -810,7 +851,7 @@ public:
 		mesh.clear();
 		for (auto& ptr : contents) {
 			if (ptr.second == nullptr)continue;
-			glm::dvec3 pos = keyPos(ptr.first);
+			glm::dvec3 pos = ptr.first;
 			bool flipped = glm::cross(ptr.second->front(), ptr.second->top()) == ptr.second->right();
 			for (int i = 0; i < 6; i++) {
 				glm::dvec3 normal = ptr.second->faceNormal(i);
@@ -868,7 +909,7 @@ public:
 		radius = 0;
 		for (auto& ptr : contents) {
 			if (ptr.second == nullptr)continue;
-			glm::dvec3 pos = keyPos(ptr.first) + glm::dvec3(0.5, 0.5, 0.5);
+			glm::dvec3 pos = ptr.first + glm::dvec3(0.5, 0.5, 0.5);
 			pos.x += glm::sign(pos.x) / 2;
 			pos.y += glm::sign(pos.y) / 2;
 			pos.z += glm::sign(pos.z) / 2;
@@ -879,15 +920,6 @@ public:
 		}
 	}
 	void updatePhysics(double t, double dt) {
-		/*
-		set<shared_ptr<Planet>> p;
-		for (auto& ptr : planets) {
-			glm::dvec3 pos = ptr->pos(t);
-			if (glm::length(position - pos) < ptr->SOI()) {
-				p.insert(ptr);
-			}
-		}
-		*/
 		glm::dvec3 gp = position + soi->apos(t);
 		shared_ptr<Planet> p;
 		double dist = std::numeric_limits<double>::infinity();
@@ -909,157 +941,175 @@ public:
 			orbit.p = p;
 			orbit.set(position, velocity, t);
 		}
+		double elapsed = 0, step;
+		glm::dvec3 lp, sn, impulse, ang_impulse;
+		while (1) {
+			//TODO:make it more stable when the object is landed?
+			//(e.g stop simulating physics when the object has less than some amount of velocity)
+			//btw the current collision detection lags out in that scenario
+			//because it tries to step through ridiculous amounts of time
+			step = checkCollision(dt - elapsed, lp, sn);
+			if (step > dt - elapsed) {
+				physics_update_inner(t + elapsed, dt - elapsed);
+				break;
+			}
+			double ltest = glm::length(avel) * (elapsed + step);
+			glm::dvec3 test = lp;
+			if(ltest!=0) test = glm::rotate(glm::inverse(glm::angleAxis(ltest, glm::normalize(avel)) * angle), test);
+			physics_update_inner(t + elapsed, step);
+			elapsed += step;
+			glm::dvec3 vel = velocity + glm::cross(glm::rotate(angle, avel), lp);
+			glm::dvec3 temp = glm::rotate(glm::inverse(angle), glm::cross(lp, sn));
+			temp = glm::rotate(angle, glm::inverse(inertialTensor) * temp);
+			impulse = sn * (glm::dot(vel, sn) * -(1 + 1));//TODO:coefficient of restitution?friction?
+			impulse /= 1 / mass + glm::dot(sn, glm::cross(temp, lp));       
+			ang_impulse = glm::cross(lp, impulse);
+            velocity += impulse / mass;
+   			avel += glm::inverse(inertialTensor) * (glm::inverse(angle) * ang_impulse);
+		}
+		orbit.set(position, velocity, t);
+	}
+	void physics_update_inner(double t, double dt) {
 		glm::dvec3 torque;
-		//torque = { 0,0.1,0.1 };
 		//TODO
-		avel += glm::inverse(inertialTensor) * torque * dt;
-		double l = glm::length(avel) * (dt / 2);
+		avel += glm::inverse(inertialTensor) * (glm::inverse(angle) * (torque * dt));
+		double l = glm::length(avel) * dt;
 		if (l != 0) {
 			glm::dvec3 n = glm::normalize(avel);
-			glm::dquat d = glm::angleAxis(glm::length(avel) * dt, n);
-			angle = d * angle;
+			glm::dquat d = glm::angleAxis(l, n);
+			angle = angle * d;
 			angle = glm::normalize(angle);
 		}
 		glm::dvec3 acc;
 		position = position + velocity * dt + glm::dvec3(acc * (dt * dt / 2));
 		velocity = velocity + accel * dt;//estimate(for drag and other speed related forces)
 		//TODO
-#ifndef TEST_FLYING
-		//acc += position * (-soi->gravity / pow(glm::length(position),3));//gravity
-#endif
+		acc += position * (-soi->gravity / pow(glm::length(position), 3));//gravity
 		velocity = velocity + (acc - accel) * (dt / 2.0);//factor in actual acceleration
+		//simplified integrator for debugging collision
+		//velocity += acc * dt;
+		//position += velocity * dt;
 		accel = acc;
-		orbit.set(position, velocity, t);
 	}
-	double checkCollision(double maxDT) {
+	double checkCollision(double maxDT,glm::dvec3& ret_position,glm::dvec3& contact_normal) {
 		//return +inf for no result,otherwise return time to collision
-		
-		//spheremarch sphere of radius radius(copied and modified from raycast function)
-		double lipschitz = soi->terrain.lipschitz;
 		double EP = 1e-8;
-		double t = 0, dt = 0;
-		double cor = sqrt(1 + lipschitz * lipschitz);
 		double r, th, ph;
-		glm::dvec3 ray, normal = glm::normalize(velocity);
 		glm::dvec3 pos,localpos;
 		glm::dquat ang;
-		double l_of_avel = glm::length(avel), ta, tb, speed = glm::length(velocity);
+		double l_of_avel = glm::length(avel), speed = glm::length(velocity);
 		glm::dvec3 rb, thb, phb, sn, cc;
 		double alt, rho, dts;
-		double scd = 1;//if the sphere casting direction is into the planet
-		double tta, time;
-		bool bisection;
-		double step = maxDT/100;//artificially introduce tunnelling :(
+		double step = maxDT/10;//artificially introduce tunnelling :(
 		//maxDT is expected to be PHYSICS_DT
 		//design the tunnelling around that
-		//at the same time the divisor(here 100) represents how many steps the linear searching does
+		//at the same time the divisor(here 10) represents how many steps the linear searching does
 		//in total in the worst case
-		while (1) {//avoid problems where the second spherecast hits but not the first
-			do {
-				ray = position / soi->radius + normal * t;
-				r = glm::length(ray);
-				if (
-					r > 1 + soi->terrain.maxHeight+radius / soi->radius * cor && 
-					glm::dot(ray, normal) > 0
-					)return numeric_limits<double>::infinity();
-				th = acos(ray.y / r);
-				ph = atan2(ray.z, ray.x);
-				dt = scd * (r - radius / soi->radius * cor - 1 - get_terrain_height(soi->terrain.coeff, th, ph, MAX_SH_LEVEL)) / cor;
-				t += dt;
-				if (t * soi->radius / speed > maxDT) {
-					if (scd == 1)return numeric_limits<double>::infinity();
-					//if the raycast is exiting the planet we still have one last interval
-					tb = maxDT;
-					break;
-				}
-				if (dt * soi->radius < EP) {
-					if (scd==1) {
-						ta = t * soi->radius / speed;
-						t += step * speed / soi->radius;
-					}
-					else {
-						tb = t * soi->radius / speed;
-						break;
-					}
-					scd = -scd;
-				}
-			} while (1);
-			if (tb < ta)throw "backwards spherecasting lol";
-			//bisect the time and do actual specific calculations to compute exact time
-			tta = ta;//make sure there is actually a result
-			bisection = false;
-			time = tb;
-			do {
-				//initialization
-				pos = position + velocity * time;
-				if (l_of_avel != 0) {
-					glm::dvec3 n = glm::normalize(avel);
-					glm::dquat d = glm::angleAxis(l_of_avel * time, n);
-					ang = d * angle;
-				}
-				else {
-					ang = angle;
-				}
-				//calculate planet plane normal and distance to COM
-				//(not assuming the planet is locally a plane is impractical)
-				alt = glm::length(pos);
-				th = acos(pos.y / alt);
-				ph = atan2(pos.z, pos.x);
-				rho = sqrt(pos.x * pos.x + pos.z * pos.z);
-				rb = pos / alt;
-				thb = glm::dvec3(pos.x * pos.y, pos.z * pos.y, -rho * rho) / (alt * rho);
-				phb = glm::dvec3(-pos.y, pos.x, 0) / rho;
-				sn =
-					rb +
-					thb * (get_terrain_height_dth(soi->terrain.coeff, th, ph, MAX_SH_LEVEL) / alt) +
-					phb * (get_terrain_height_dph(soi->terrain.coeff, th, ph, MAX_SH_LEVEL) / (alt * sin(th)));
-				dts = alt - soi->radius * (1 + get_terrain_height(soi->terrain.coeff, th, ph, MAX_SH_LEVEL));
-				cc = glm::dvec3(0.5, 0.5, 0.5);
-				cc = glm::rotate(ang, cc);
-				cc = cc * glm::dvec3(ofSign(-sn.x), ofSign(-sn.y), ofSign(-sn.z));
-				//loop over parts and calculate intersection
-				for (auto& ptr : contents) {
-					localpos = glm::rotate(ang, keyPos(ptr.first) - COM) + cc;
-					if (glm::dot(-sn, localpos) < dts) continue;
-					//a collision has happened
-					//for the linear search it means it is okay to do bisection now if tb is time
-					bisection = true;
-					tb = time;
-					break;
-				}
-				if(tb != time)ta = time;
-				if (bisection)time = (ta + tb) / 2;
-				else time -= step;
-			} while (tb - ta > EP);
-			if(bisection)return ta;
+		//actually step should be tb/10 i think
+		bool last = false;
+		double H;
+		double ta = 0, tb = maxDT, time = tb;
+		bool bisection = false;
+		//bisect the time and do actual specific calculations to compute exact time
+		//since we are thinking the planet as a plane locally anyways
+		//wouldnt hurt to cut some costly get_terrain_height() calls
+		pos = position + velocity * time;
+		alt = glm::length(pos);
+		th = acos(pos.y / alt);
+		ph = atan2(pos.z, pos.x);
+		if (ph < 0.0f)
+			ph += glm::two_pi<float>();
+		rho = sqrt(pos.x * pos.x + pos.z * pos.z);
+		rb = glm::dvec3(
+			sin(th) * cos(ph),
+			cos(th),
+			sin(th) * sin(ph)
+		);
+		thb = glm::dvec3(
+			cos(th) * cos(ph),
+			-sin(th),
+			cos(th) * sin(ph)
+		);
+		phb = glm::dvec3(
+			-sin(ph),
+			0.0,
+			cos(ph)
+		);
+		H = 1 + get_terrain_height(soi->terrain.coeff, th, ph, MAX_SH_LEVEL);
+		sn = rb -
+			thb * get_terrain_height_dth(soi->terrain.coeff, th, ph, MAX_SH_LEVEL) / H -
+			phb * get_terrain_height_dph(soi->terrain.coeff, th, ph, MAX_SH_LEVEL) / H / sin(th);
+		sn = glm::normalize(sn);
+		if (abs(
+			get_terrain_height_dth(soi->terrain.coeff, th, ph, 1) -
+			(
+				get_terrain_height(soi->terrain.coeff, th + 0.001, ph, 1) -
+				get_terrain_height(soi->terrain.coeff, th, ph, 1)
+				) / 0.001
+		) > 0.001)throw "not right";
+		do {
+			//initialization
+			pos = position + velocity * time;
+			if (l_of_avel != 0) {
+				ang = angle * glm::angleAxis(l_of_avel * time, avel/l_of_avel);
+			}
+			else {
+				ang = angle;
+			}
+			//calculate planet plane normal and distance to COM
+			//(not assuming the planet is locally a plane is impractical)
+			alt = glm::length(pos);
+			dts = alt - H * soi->radius;
+			plane = sn;
+			planedist = dts;
+			//closest corner to sn.effectively this is figuring out which octant sn points against
+			//and finding the corner there
+			cc = -0.5 * glm::sign(glm::inverse(ang) * sn);
+			//loop over parts and calculate intersection
+			colccs.clear();
+			for (auto& ptr : contents) {
+				localpos = glm::rotate(ang, ptr.first + glm::dvec3(0.5, 0.5, 0.5) - COM + cc);
+				colccs.push_back({ localpos + pos - ang * cc ,ang * cc });
+				if (glm::dot(-sn, localpos) < dts) continue;
+				//a collision has happened
+				//for the linear search it means it is okay to do bisection now if tb is time
+				bisection = true;
+				tb = time;
+				ret_position = localpos;
+				contact_normal = sn;
+				testcol = localpos + pos;
+				testcol2 = sn;
+				testcol3 = localpos - ang * cc + pos;
+				testcol4 = ang * cc;
+				break;
+			}
+			if (bisection) {
+				if (tb != time)ta = time;
+				time = (ta + tb) / 2;
+			}
+			else time -= step;
+		} while (tb - ta > EP && time - step > ta);
+		if (!bisection)return numeric_limits<double>::infinity();
+		//check if collision is at or before 0
+		if (ta != 0)return ta;
+		//pull out of surface and try again
+		double mindist = numeric_limits<double>::infinity();
+		for (auto& ptr : contents) {
+			cc = -0.5 * glm::sign(glm::inverse(angle) * sn);
+			localpos = glm::rotate(angle, ptr.first + glm::dvec3(0.5, 0.5, 0.5) - COM + cc);
+			mindist = min(mindist, glm::dot(-sn, localpos));
 		}
+		position += sn * (glm::length(position) - H * soi->radius - mindist);
+		return checkCollision(maxDT,ret_position,contact_normal);
 	}
 private:
-	unordered_map<string,shared_ptr<GridElement>> contents;
+	unordered_map<glm::dvec3,shared_ptr<GridElement>> contents;
 	//y points down,z points right,x points forwards in that order
 	double mass,radius;//radius of bounding sphere
 	glm::dvec3 COM;//ship coordinates
 	glm::dmat3 inertialTensor;
 	of3dPrimitive brush;
 	ofMesh mesh;
-	string keyString(glm::dvec3 index) {
-		return keyString((int)round(index.x), (int)round(index.y), (int)round(index.z));
-	}
-	string keyString(int x, int y, int z) {
-		return to_string(x) + "," + to_string(y) + "," + to_string(z);
-	}
-	glm::dvec3 keyPos(string str) {
-		stringstream s(str);
-		string temp;
-		glm::dvec3 res;
-		getline(s, temp, ',');
-		res.x = stod(temp);
-		getline(s, temp, ',');
-		res.y = stod(temp);
-		getline(s, temp, ',');
-		res.z = stod(temp);
-		return res;
-	}
 };
 int sceneDisplayed = 2;//0=instruments,1=map,2=craft part details,3=camera
 void dragMap() {

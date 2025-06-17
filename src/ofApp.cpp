@@ -1,8 +1,7 @@
 #include "ofApp.h"
-//#define TEST_FLYING
 GridElement root("test", 1);
 GridElement t("test2", 1);
-PhysicsGrid p(make_shared<GridElement>(root), { 574140,0,0 }, { -1,0,0 }, planets[0], 0);
+PhysicsGrid p(make_shared<GridElement>(root), { 574134.9,0,0 }, { -1,0,0 }, planets[0], 0);
 //orbital speed at 680000=2278.9316
 void ofApp::setup(){
 	compute_legendre_coeff();
@@ -34,17 +33,16 @@ double remainingSimulation = 0.0;
 double totalTime = 0.0;
 void ofApp::update(){
 	dragMap();
-	if (sceneDisplayed != 2) {
+	if (sceneDisplayed != 2/* && keys[' ']*/) {
 		remainingSimulation += ofGetLastFrameTime();
 		for (; remainingSimulation > PHYSICS_DT; remainingSimulation -= PHYSICS_DT) {
-			//p.updatePhysics(totalTime,PHYSICS_DT);
+			p.updatePhysics(totalTime,PHYSICS_DT);
 			totalTime += PHYSICS_DT;
 		}
 	}
-	
-	std::stringstream strm;
-	strm << "fps: " << ofGetFrameRate();
-	ofSetWindowTitle(strm.str());
+	if (keys['r']) {
+		p.angle = glm::inverse(camera.getGlobalOrientation());
+	}
 	
 }
 void ofApp::draw(){
@@ -86,44 +84,38 @@ void ofApp::draw(){
 		ofPopMatrix();
 		break;
 	case 3:
-#ifdef TEST_FLYING
-		glm::dvec3 cameraPos = camera.getGlobalPosition();
-		glm::dvec3 ref = (cameraPos + p.position)/ planets[0]->radius;
-		glm::dvec3 rayDir = glm::normalize(-cameraPos), rayHit;
-		if (mouse[0]&&raycastSH_c(
-			rayHit,
-			planets[0]->terrain.coeff,
-			planets[0]->terrain.lipschitz,
-			planets[0]->terrain.maxHeight,
-			ref,
-			rayDir
-		)) {
-			p.position = planets[0]->radius * rayHit;
-		}
-#endif
 		//ofEnableLighting();
 		//sunLight->enable();
+		ofPushMatrix();
 		camera.begin();
 		ofEnableDepthTest();
+		ofScale(1, 1, -1);
 		for (int i = 0; i < planets.size(); i++) {
 			if (p.soi != planets[i])continue;
 			planets[i]->displayMode3(p.position, i);
 		}
 		p.displayMode3();
 		ofDrawAxis(256);
-		double time = p.checkCollision(10);
-		if (time < 10) {
-			glm::dvec3 newpos = p.position + p.velocity * time;
-			ofDrawSphere((newpos-p.position)*DM3_SCALE, DM3_SCALE);
+		//ofDrawSphere((testcol - p.position) * DM3_SCALE, DM3_SCALE);
+		//ofDrawArrow((testcol - p.position) * DM3_SCALE, (testcol + testcol2 - p.position) * DM3_SCALE, DM3_SCALE / 16);
+		//ofDrawArrow((testcol3 - p.position) * DM3_SCALE, (testcol3 + testcol4 - p.position) * DM3_SCALE, DM3_SCALE / 16);
+		for (auto& ptr : colccs) {
+			ofDrawArrow((ptr.first - p.position) * DM3_SCALE, (ptr.first + ptr.second - p.position) * DM3_SCALE, DM3_SCALE / 16);
 		}
-		//ofDrawArrow({0,0,0}, p.avel*100.0, 20.0);
+		drawPlaneWithNormal(plane, planedist * DM3_SCALE, 1000);
 		ofDisableDepthTest();
 		camera.end();
+		ofPopMatrix();
 		//ofDisableLighting();
 		//sunLight->disable();
 		ofPushStyle();
 		ofSetColor(255, 255, 0);
-		ofDrawBitmapString(to_string(planets[0]->radius*(planets[0]->terrain.get(p.position)+1)), 100, 100);
+		ofDrawBitmapString(
+			to_string(ofGetFrameRate()) + "\n" +
+			to_string(glm::length(p.position)) + "\n" +
+			to_string(glm::length(p.velocity)) + "\n" +
+			to_string(planets[0]->radius * (planets[0]->terrain.get(p.position) + 1))
+			, 100, 100);
 		ofPopStyle();
 		break;
 	}
@@ -131,7 +123,7 @@ void ofApp::draw(){
 
 void ofApp::keyPressed(int key){
 	keys[key] = true;
-	if (selectedPart != nullptr) {
+	if (sceneDisplayed == 2 && selectedPart != nullptr) {
 		if (key == 'r')selectedPart->rotateFrontFace();
 		if (key == 't')selectedPart->rotateTopFace();
 		if (key == 'y')selectedPart->rotateRightFace();

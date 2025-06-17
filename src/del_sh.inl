@@ -5,8 +5,13 @@
 double FUNC_NAME(double coeff[], double th, double ph, int level) {
 	double cos_th = cos(th), nsin_th = -sin(th);
 	double rt2 = 0, zero = 0;
+#ifdef DERIVATIVE_PH
+	double cosph[MAX_SH_LEVEL + 1] = { 0 };
+	double sinph[MAX_SH_LEVEL + 1] = { 0 };
+#else
 	double cosph[MAX_SH_LEVEL + 1] = { 1 };
 	double sinph[MAX_SH_LEVEL + 1] = { 0 };
+#endif
 	double expct[MAX_SH_LEVEL + 1] = { 1 };
 	double expox[MAX_SH_LEVEL + 1] = { 1 };
 #ifdef DERIVATIVE_TH
@@ -29,13 +34,25 @@ double FUNC_NAME(double coeff[], double th, double ph, int level) {
 		preve = expct[m] = preve * cos_th;
 		prevx = expox[m] = prevx * nsin_th;
 	}
-	double* lpc = lpoly_coeff, * lpn = lpoly_norm, * tc = coeff;
+	double* lpc = lpoly_coeff, * lpn = lpoly_norm, * tc = coeff,rest;
 	for (int l = 0; l <= level; l++) {
-		double rest = 0;
+
+#ifdef DERIVATIVE_PH
+		//zero is a constant,constants have 0 derivative
+		//still have to advance the iterators tho
+		lpc += l + 1;
+		lpn++;
+#else
+		rest = 0;
 		for (int i = 0; i < l + 1; i++) {
+#ifdef DERIVATIVE_TH
+			rest += *(lpc++) * dexpct[i];
+#else
 			rest += *(lpc++) * expct[i];
+#endif
 		}
 		zero += *(lpn++) * *tc * rest;
+#endif
 		for (int abs_m = 1; abs_m <= l; abs_m++) {
 			rest = 0;
 			double E = expox[abs_m];
