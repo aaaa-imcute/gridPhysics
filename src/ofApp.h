@@ -340,14 +340,31 @@ public:
 };
 class OrbitalElements {
 public:
-	double a, e, i, o, w, v;//v is mean anomaly at t=0 NOT TRUE ANOMALY,o is LAN(capital omega)
+	double a, e, i, o, w, v, periapsis;
+	//o is LAN(capital omega)
+	//v is mean anomaly at t=0 NOT TRUE ANOMALY,unless if the orbit is parabolic
+	//then a is infinity,e is 1,periapsis is used,mean motion is 1,
+	//and v is how much time have passed since periapsis at t=0
+	//(so that the equation for mean anomaly still makes sense)
 	shared_ptr<Planet> p;
 	OrbitalElements(shared_ptr<Planet> p1,glm::dvec3 r,glm::dvec3 V,double t) {
 		p = p1;
 		set(r, V, t);
 	}
-	OrbitalElements(shared_ptr<Planet> p1, double a1, double e1, double i1, double o1, double w1, double v1)
-		:p(p1), a(a1), e(e1), i(i1), o(o1), w(w1), v(v1) {};
+	OrbitalElements(
+		shared_ptr<Planet> p1,
+		double a1, double e1,
+		double i1, double o1, double w1,
+		double v1
+	)
+		:p(p1), a(a1), e(e1), i(i1), o(o1), w(w1), v(v1), periapsis(a*(1-e)) {};
+	OrbitalElements(
+		shared_ptr<Planet> p1,
+		double periapsis1, double e1,
+		double i1, double o1, double w1,
+		double v1, bool parabolic
+	)
+		:p(p1), a(numeric_limits<double>::infinity()), e(e1), i(i1), o(o1), w(w1), v(v1), periapsis(periapsis1) {};
 	double period() {
 		//yep this and meanMotion multiply to make 2PI
 		//apart from the sign part which I basically invented to make hyperbolic
@@ -355,6 +372,7 @@ public:
 		return 2 * PI * ofSign(a) * sqrt(abs(a * a * a) / p->gravity);
 	}
 	double meanMotion() {
+		if (e == 1)return 1;
 		return sqrt(p->gravity / abs(a * a * a));
 	}
 	double trueAnomaly(double t) {
@@ -381,8 +399,10 @@ public:
 			}
 			return 2 * atan2(sqrt(e + 1) * sinh(H / 2), sqrt(e - 1) * cosh(H / 2));
 		}
-		//TODO:maybe I am...
-		throw "hey I'm not programming that case";
+		double B = -1.5 * M * sqrt(p->gravity / (2 * periapsis * periapsis * periapsis));
+		double rtdelta = sqrt(B * B - 1);
+		double D = cbrt(B + rtdelta) + cbrt(B - rtdelta);
+		return 2 * atan(D);
 	}
 	glm::dmat4 mat() {
 		glm::dquat q =
@@ -401,9 +421,36 @@ public:
 	}
 	glm::dvec3 tpos(double n) {
 		//input:true anomaly
-		double r = a * (1 - e * e) / (1 + e * cos(n));
+		double r;
+		if (e == 1) {
+			r = 2 * periapsis / (1 + cos(n));
+		}
+		else {
+			r = a * (1 - e * e) / (1 + e * cos(n));
+		}
 		glm::dvec4 ret(r * cos(n), 0.0, r * sin(n), 1.0);
 		ret = mat() * ret;
+		return glm::dvec3(ret);
+	}
+	glm::dvec3 tvel(double n) {
+		//input:true anomaly
+		double r, th, coeff, vcos = 1 + e * cos(n);//a bit off from what "vercosin" is,but whatever
+		glm::dvec4 ret;
+		if (e == 1) {
+			coeff = sqrt(p->gravity / (a * (1 - e * e)));
+			r = 2 * periapsis / vcos;
+			th = sqrt(2 * p->gravity / r);
+			ret = { -sin(n), 0.0, vcos, 1.0 };
+		}
+		else {
+			coeff = sqrt(p->gravity / (2 * periapsis));
+			r = coeff * e * sin(n);
+			th = coeff * vcos;
+			ret = { r * cos(n) - th * sin(n), 0.0, r * sin(n) + th * cos(n), 1.0 };
+		}
+		ret = mat() * ret;
+		//TODO:testing.this piece of code has not been used anywhere.
+		if (glm::length(glm::dvec3(ret) - (tpos(n + 0.0000000001) - tpos(n)) / 0.0000000001) > 0.01)throw "far off";
 		return glm::dvec3(ret);
 	}
 	glm::dvec3 pos(double t) {
@@ -412,8 +459,10 @@ public:
 		return tpos(n);
 	}
 	glm::dvec3 vel(double t) {
-		double ep = 1.0/60;
-		return (pos(t+ep)-pos(t))/ep;
+		double n = trueAnomaly(t);
+		return tvel(n);
+		//double ep = 1.0/60;
+		//return (pos(t+ep)-pos(t))/ep;
 		//yeah chat gpt keeps using the vis viva equation so here's my (practical) answer
 	}
 	glm::dvec3 apos(double t) {
@@ -466,9 +515,15 @@ public:
 			double E = atan2(sqrt(1 - e * e) * sin(n), e + cos(n));
 			M = E - e * sin(E);
 		}
-		else {
+		else if(e > 1){
 			double F = 2 * atanh(tan(n / 2) * sqrt((e - 1) / (e + 1)));
 			M = e * sinh(F) - F;
+		}
+		else {
+			//parabolic orbits are annoying because a*(1-e) is NaN so we will have to store that
+			periapsis = glm::length2(h) / (2 * p->gravity);
+			double D = tan(n / 2);
+			M = sqrt(2 * periapsis * periapsis * periapsis / p->gravity) * (D + D * D * D / 3);
 		}
 		v = M - meanMotion() * t;
 		if(e<1)v = ffmod(v, 2 * PI);
