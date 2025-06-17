@@ -76,7 +76,7 @@ double double_factorial(int n) {
 	}
 	return pow(2, n / 2) * tgamma(n / 2 + 1);
 }
-double SQRT_2 = sqrt(2.0);
+//double SQRT_2 = sqrt(2.0);
 double lpoly_coeff[LC_FIND_INDEX(MAX_SH_LEVEL + 1, 0)] = { 1,0,1,1,0 };
 double lpoly_norm[LN_FIND_INDEX(MAX_SH_LEVEL + 1)] = {
 	sqrt(1 / (4.0 * PI)),

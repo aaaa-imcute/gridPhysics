@@ -71,5 +71,5 @@ double FUNC_NAME(double coeff[], double th, double ph, int level) {
 		}
 		tc += 2 * l + 2;
 	}
-	return SQRT_2 * rt2 + zero;
+	return numbers::sqrt2 * rt2 + zero;
 }
