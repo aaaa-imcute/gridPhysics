@@ -106,6 +106,7 @@ void compute_legendre_coeff() {
 		l++;
 	}
 }
+double SQRT_2 = sqrt(2.0);
 //using macros we define three variations of the same function
 #define FUNC_NAME get_terrain_height
 #include "del_sh.inl"

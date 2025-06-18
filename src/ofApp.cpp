@@ -1,7 +1,8 @@
 #include "ofApp.h"
-GridElement root("test", 1);
-GridElement t("test2", 1);
+GridElement root("test", 1, 0.3, 0.5);
+GridElement t("test2", 1, 0.3, 0.5);
 PhysicsGrid p(make_shared<GridElement>(root), { 574134.9,0,0 }, { -1,0,0 }, planets[0], 0);
+double initialEnergy;
 //orbital speed at 680000=2278.9316
 void ofApp::setup(){
 	compute_legendre_coeff();
@@ -27,6 +28,7 @@ void ofApp::setup(){
 	planets[0]->terrain.generate(436, 0.1, 2);
 	t.rotateRightFace();
 	p.setItem(make_shared<GridElement>(t), 0, 1, 0);
+	initialEnergy = p.totalEnergy();
 }
 constexpr double PHYSICS_DT = 1.0/600;
 double remainingSimulation = 0.0;
@@ -107,6 +109,7 @@ void ofApp::draw(){
 			to_string(ofGetFrameRate()) + "\n" +
 			to_string(glm::length(p.position)) + "\n" +
 			to_string(glm::length(p.velocity)) + "\n" +
+			to_string(p.totalEnergy()-initialEnergy) + "\n" +
 			to_string(planets[0]->radius * (planets[0]->terrain.get(p.position) + 1))
 			, 100, 100);
 		ofPopStyle();

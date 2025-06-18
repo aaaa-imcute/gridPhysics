@@ -2,7 +2,6 @@
 
 #include "ofMain.h"
 #include "SH.cpp"
-#include "numbers"
 double ffmod(double x, double y) {
 	return fmod(fmod(x, y) + y, y);
 }
@@ -658,15 +657,17 @@ void createPlanetAtlas(){
 }
 class GridElement {
 public:
-	GridElement(string t, double m) {
+	GridElement(string t, double m,double r,double f) {
 		type = t;
 		mass = m;
+		COR = r;
+		COF = f;
 		frontFace = 4;
 		topFace = 2;
 		rightFace = 0;
 	}
 	string type;
-	double mass;
+	double mass, COR, COF;//COF is kinetic friction,static friction is approximated by COF*1.25
 	int frontFace, topFace, rightFace;
 	glm::dvec3 faceNormal(int face) {//returns ship coordinates
 		switch (face) {
@@ -994,56 +995,84 @@ public:
 			orbit.set(position, velocity, t);
 		}
 		double elapsed = 0, step;
-		glm::dvec3 lp, sn, impulse, ang_impulse;
-		while (1) {
-			//TODO:make it more stable when the object is landed?
+		glm::dvec3 lp, sn, vel, temp;
+		shared_ptr<GridElement> cpart;
+		glm::dvec3 impulse, force, tot_impulse;
+		glm::dvec3 ang_impulse, ang_force, tot_aimpulse;//global frame
+		glm::dvec3 n_impulse, t_impulse, t_rimp;
+		glm::dvec3 nf, tf;
+		double l_trimp, friction;
+		double l_nimpulse;
+		bool last = false;
+		while (!last) {
+			//TODO:make it more stable when the object is landed?(Also static friction)
 			//(e.g stop simulating physics when the object has less than some amount of velocity)
 			//btw the current collision detection lags out in that scenario
 			//because it tries to step through ridiculous amounts of time
-			step = checkCollision(dt - elapsed, lp, sn);
+
+			//check for collision
+			step = checkCollision(dt - elapsed, lp, sn, cpart);
 			if (step > dt - elapsed) {
-				physics_update_inner(t + elapsed, dt - elapsed);
-				break;
+				step = dt - elapsed;//last segment
+				elapsed = dt;
+				last = true;
 			}
-			double ltest = glm::length(avel) * (elapsed + step);
-			glm::dvec3 test = lp;
-			if(ltest!=0) test = glm::rotate(glm::inverse(glm::angleAxis(ltest, glm::normalize(avel)) * angle), test);
-			physics_update_inner(t + elapsed, step);
-			elapsed += step;
-			glm::dvec3 vel = velocity + glm::cross(glm::rotate(angle, avel), lp);
-			glm::dvec3 temp = glm::rotate(glm::inverse(angle), glm::cross(lp, sn));
-			temp = glm::rotate(angle, glm::inverse(inertialTensor) * temp);
-			impulse = sn * (glm::dot(vel, sn) * -(1 + 1));//TODO:coefficient of restitution?friction?
-			impulse /= 1 / mass + glm::dot(sn, glm::cross(temp, lp));       
-			ang_impulse = glm::cross(lp, impulse);
-            velocity += impulse / mass;
-   			avel += glm::inverse(inertialTensor) * (glm::inverse(angle) * ang_impulse);
+
+			//deal with remnants of last collision
+			//if needed(cancels out overapproximation of implicit euler)
+			position-=force*(step/2);
+			impulse = glm::dvec3(0);
+			force = glm::dvec3(0);
+			ang_impulse = glm::dvec3(0);
+			ang_force = glm::dvec3(0);
+
+			//deal with normal force
+			if(!last) {
+				elapsed += step;
+				glm::dvec3 vel = velocity + glm::cross(glm::rotate(angle, avel), lp);
+				glm::dvec3 temp = glm::rotate(glm::inverse(angle), glm::cross(lp, sn));
+				temp = glm::rotate(angle, glm::inverse(inertialTensor) * temp);
+				nf = (sn * (glm::dot(vel, sn) * -(1 + cpart->COR))) /
+					(1 / mass + glm::dot(sn, glm::cross(temp, lp)));
+				impulse += nf;
+				ang_impulse += glm::cross(lp, nf);
+			}
+			//deal with regular forces
+			force += position * (-soi->gravity / pow(glm::length(position), 3));//gravity
+
+			//deal with tangential force(if we do have a collision)
+			tot_impulse = impulse + force * step;
+			tot_aimpulse = ang_impulse + ang_force * step;
+			if (!last) {
+				double repose = glm::dot(sn, position) / glm::length(sn) / glm::length(position);
+				double repose2 = atan(cpart->COF);
+				t_impulse = tot_impulse + glm::cross(tot_aimpulse, lp);
+				l_nimpulse = glm::dot(sn, t_impulse);
+				n_impulse = sn * l_nimpulse;
+				t_impulse -= n_impulse;
+				t_rimp = t_impulse + (vel - sn * glm::dot(sn, vel)) * mass;
+				if (l_nimpulse > 0) {
+					l_trimp = glm::length(t_rimp);
+					friction = cpart->COF * l_nimpulse;
+					friction = min(friction, l_trimp);
+					tf = (friction / l_trimp) * t_rimp;
+					tot_impulse += tf;
+					tot_aimpulse += glm::cross(lp, tf);
+				}
+			}
+			//integrate
+			velocity += tot_impulse / mass;
+			avel += glm::inverse(inertialTensor) * (glm::inverse(angle) * tot_aimpulse);
+			position += velocity * step;
+			double l = glm::length(avel);
+			if (l != 0) {
+				angle = angle * glm::angleAxis(l * step, avel / l);
+				angle = glm::normalize(angle);
+			}
 		}
 		orbit.set(position, velocity, t);
 	}
-	void physics_update_inner(double t, double dt) {
-		glm::dvec3 torque;
-		//TODO
-		avel += glm::inverse(inertialTensor) * (glm::inverse(angle) * (torque * dt));
-		double l = glm::length(avel) * dt;
-		if (l != 0) {
-			glm::dvec3 n = glm::normalize(avel);
-			glm::dquat d = glm::angleAxis(l, n);
-			angle = angle * d;
-			angle = glm::normalize(angle);
-		}
-		glm::dvec3 acc;
-		position = position + velocity * dt + glm::dvec3(acc * (dt * dt / 2));
-		velocity = velocity + accel * dt;//estimate(for drag and other speed related forces)
-		//TODO
-		acc += position * (-soi->gravity / pow(glm::length(position), 3));//gravity
-		velocity = velocity + (acc - accel) * (dt / 2.0);//factor in actual acceleration
-		//simplified integrator for debugging collision
-		//velocity += acc * dt;
-		//position += velocity * dt;
-		accel = acc;
-	}
-	double checkCollision(double maxDT,glm::dvec3& ret_position,glm::dvec3& contact_normal) {
+	double checkCollision(double maxDT, glm::dvec3& ret_position, glm::dvec3& contact_normal, shared_ptr<GridElement>& part) {
 		//return +inf for no result,otherwise return time to collision
 		double EP = 1e-8;
 		double r, th, ph;
@@ -1125,6 +1154,7 @@ public:
 				tb = time;
 				ret_position = localpos;
 				contact_normal = sn;
+				part = ptr.second;
 				break;
 			}
 			if (bisection) {
@@ -1144,7 +1174,13 @@ public:
 			mindist = min(mindist, glm::dot(-sn, localpos));
 		}
 		position += sn * (glm::length(position) - H * soi->radius - mindist);
-		return checkCollision(maxDT,ret_position,contact_normal);
+		return checkCollision(maxDT, ret_position, contact_normal, part);
+	}
+	double totalEnergy() {
+		double KE = 0.5 * mass * glm::dot(velocity, velocity);
+		double rotKE = 0.5 * glm::dot(avel, inertialTensor * avel);
+		double GE = -soi->gravity * mass / glm::length(position);
+		return KE + rotKE + GE;
 	}
 private:
 	unordered_map<glm::dvec3,shared_ptr<GridElement>> contents;
