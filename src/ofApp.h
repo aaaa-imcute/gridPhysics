@@ -315,6 +315,41 @@ public:
 			}
 		}
 	}
+	glm::dvec3 getSurfaceNormal(glm::dvec3 pos) {
+		double EP = 1e-8;
+		double r, th, ph;
+		glm::dvec3 rb, thb, phb, sn;
+		double alt, rho, dts;
+		double H;
+		alt = glm::length(pos);
+		th = acos(pos.y / alt);
+		ph = atan2(pos.z, pos.x);
+		if (ph < 0.0f)
+			ph += glm::two_pi<float>();
+		rho = sqrt(pos.x * pos.x + pos.z * pos.z);
+		rb = glm::dvec3(
+			sin(th) * cos(ph),
+			cos(th),
+			sin(th) * sin(ph)
+		);
+		thb = glm::dvec3(
+			cos(th) * cos(ph),
+			-sin(th),
+			cos(th) * sin(ph)
+		);
+		phb = glm::dvec3(
+			-sin(ph),
+			0.0,
+			cos(ph)
+		);
+		H = 1 + get_terrain_height(coeff, th, ph, MAX_SH_LEVEL);
+		sn = rb -
+			thb * get_terrain_height_dth(coeff, th, ph, MAX_SH_LEVEL) / H -
+			phb * get_terrain_height_dph(coeff, th, ph, MAX_SH_LEVEL) / H / sin(th);
+		//sn = glm::dvec3(1, 0, 0);
+		sn = glm::normalize(sn);
+		return sn;
+	}
 };
 class Planet;
 class OrbitalElements;
@@ -774,6 +809,30 @@ public:
 };
 shared_ptr<GridElement> selectedPart;//sceneDisplayed==2
 glm::dvec3 selectedPos;
+enum class ShipSituation {
+	LANDED,
+	SlIDING,
+	FLYING
+};
+string printSituation(ShipSituation situ) {
+	switch (situ) {
+	case ShipSituation::LANDED:
+		return "Landed";
+	case ShipSituation::SlIDING:
+		return "Sliding";
+	case ShipSituation::FLYING:
+		return "Flying";
+	default:
+		return "idk";
+	}
+}
+glm::dvec3 getAlignedAxis(glm::dvec3 v) {
+	double x = abs(v.x), y = abs(v.y), z = abs(v.z);
+	if (x > y && x > z)return glm::dvec3(glm::sign(v.x), 0, 0);
+	if (y > x && y > z)return glm::dvec3(0, glm::sign(v.y), 0);
+	if (z > x && z > y)return glm::dvec3(0, 0, glm::sign(v.z));
+}
+const double SF_BONUS = 1.25;
 class PhysicsGrid {
 public:
 	shared_ptr<Planet> soi;
@@ -784,6 +843,8 @@ public:
 	glm::dvec3 avel;//along axis of rotation,magnitude is amount and direction of rotation
 	//in local space apparently
 	OrbitalElements orbit;
+	ShipSituation situ=ShipSituation::FLYING;
+	//remember after each state switch justify that the subsequent code does handle the state again
 	PhysicsGrid(shared_ptr<GridElement> root, glm::dvec3 p, glm::dvec3 v,shared_ptr<Planet> planet,double t)
 	:orbit(planet,p,v,t){
 		//soi = planets[0];//assuming this is the one holding the global frame of reference
@@ -994,94 +1055,155 @@ public:
 			orbit.p = p;
 			orbit.set(position, velocity, t);
 		}
-		double elapsed = 0, step;
-		glm::dvec3 lp, sn, vel, temp;
-		shared_ptr<GridElement> cpart;
-		glm::dvec3 impulse, force, tot_impulse;
-		glm::dvec3 ang_impulse, ang_force, tot_aimpulse;//global frame
-		glm::dvec3 n_impulse, t_impulse, t_rimp;
-		glm::dvec3 nf, tf;
-		double l_trimp, friction;
-		double l_nimpulse;
-		bool last = false;
-		while (!last) {
-			//TODO:make it more stable when the object is landed?(Also static friction)
-			//(e.g stop simulating physics when the object has less than some amount of velocity)
-			//btw the current collision detection lags out in that scenario
-			//because it tries to step through ridiculous amounts of time
-
-			//check for collision
-			step = checkCollision(dt - elapsed, lp, sn, cpart);
-			if (step > dt - elapsed) {
-				step = dt - elapsed;//last segment
-				elapsed = dt;
-				last = true;
+		glm::dvec3 temp;
+		glm::dvec3 sn = soi->terrain.getSurfaceNormal(position);
+		glm::dvec3 lsn = glm::inverse(angle) * sn;
+		glm::dvec3 nvel = sn * glm::dot(sn, velocity);
+		glm::dvec3 tvel = velocity - nvel;
+		if (situ == ShipSituation::LANDED) {
+			glm::dvec3 force = regularForces(t);
+			if (glm::dot(sn, force) > 0) {
+				situ = ShipSituation::FLYING;
+				integrate(t, dt, glm::dvec3(0), glm::dvec3(0));
 			}
+			else{
+				shared_ptr<GridElement> cpart;
+				double mindist = numeric_limits<double>::infinity();
+				for (auto& ptr : contents) {
+					glm::dvec3 cc = -0.5 * glm::sign(glm::inverse(angle) * sn);
+					glm::dvec3 localpos = glm::rotate(angle, ptr.first + glm::dvec3(0.5, 0.5, 0.5) - COM + cc);
+					if (glm::dot(-sn, localpos) < mindist) {
+						mindist = glm::dot(-sn, localpos);
+						cpart = ptr.second;
+					}
+				}
+				glm::dvec3 nf = sn * glm::dot(sn, force);
+				glm::dvec3 tf = force - nf;
+				double friction = glm::length(nf) * cpart->COF;
+				if (friction * SF_BONUS > glm::length(tf)) {
+					velocity = glm::dvec3(0);
+					avel = glm::dvec3(0);
+				}
+				else {
+					situ = ShipSituation::SlIDING;
+					//this actually omits one frame of friction,but whatever
+					integrate(t, dt, glm::dvec3(0), glm::dvec3(0), tf);
+				}
+				angle = angle * glm::rotation(getAlignedAxis(lsn), lsn);
+				double dist = soi->radius * (1 + soi->terrain.get(position)) + mindist;
+				position = dist * glm::normalize(position);
+			}
+		}
+		else if (situ == ShipSituation::SlIDING) {
+			glm::dvec3 force = regularForces(t);
+			if (glm::dot(sn, force) > 0) {
+				//TODO:account for toppling over(COM outside contact points)
+				situ = ShipSituation::FLYING;
+				integrate(t, dt, glm::dvec3(0), glm::dvec3(0));
+			}
+			else {
+				shared_ptr<GridElement> cpart;
+				double mindist = numeric_limits<double>::infinity();
+				for (auto& ptr : contents) {
+					glm::dvec3 cc = -0.5 * glm::sign(glm::inverse(angle) * sn);
+					glm::dvec3 localpos = glm::rotate(angle, ptr.first + glm::dvec3(0.5, 0.5, 0.5) - COM + cc);
+					if (glm::dot(-sn, localpos) < mindist) {
+						mindist = glm::dot(-sn, localpos);
+						cpart = ptr.second;
+					}
+				}
+				// double slope = acos(glm::dot(sn, glm::normalize(position)));
+				// double repose = atan(cpart->COF * SF_BONUS);
+				glm::dvec3 nf = sn * glm::dot(sn, force);
+				glm::dvec3 tf = force - nf;
+				double friction = glm::length(nf) * dt * cpart->COF;
+				if (friction * SF_BONUS > glm::length(velocity * mass + tf * dt)) {
+					situ = ShipSituation::LANDED;
+					velocity = glm::dvec3(0);
+					avel = glm::dvec3(0);
+				}
+				else {
+					glm::dvec3 maxFriction = velocity * mass + tf * dt;
+					friction = min(friction, glm::length(maxFriction));
+					//TODO:More correctly calculate angular friction
+					avel += glm::inverse(inertialTensor) * (-cpart->COF * avel * dt);
+					integrate(t, dt, -friction * glm::normalize(maxFriction), glm::dvec3(0), tf);
+				}
+				angle = angle * glm::rotation(getAlignedAxis(lsn), lsn);
+				double dist = soi->radius * (1 + soi->terrain.get(position)) + mindist;
+				position = dist * glm::normalize(position);
+			}
+		}
+		else {
+			double elapsed = 0;
+			while (1) {
+				//check for collision
+				glm::dvec3 lp;
+				shared_ptr<GridElement> cpart;
+				double step = checkCollision(dt - elapsed, lp, temp, cpart);
 
-			//deal with remnants of last collision
-			//if needed(cancels out overapproximation of implicit euler)
-			position-=force*(step/2);
-			impulse = glm::dvec3(0);
-			force = glm::dvec3(0);
-			ang_impulse = glm::dvec3(0);
-			ang_force = glm::dvec3(0);
-
-			//deal with normal force
-			if(!last) {
+				if (step >= dt - elapsed) {
+					step = dt - elapsed;//last segment
+					integrate(t + elapsed, step, glm::dvec3(0), glm::dvec3(0));
+					elapsed = dt;
+					break;
+				}
+				integrate(t + elapsed, step, glm::dvec3(0), glm::dvec3(0));
 				elapsed += step;
 				glm::dvec3 vel = velocity + glm::cross(glm::rotate(angle, avel), lp);
-				glm::dvec3 temp = glm::rotate(glm::inverse(angle), glm::cross(lp, sn));
-				temp = glm::rotate(angle, glm::inverse(inertialTensor) * temp);
-				nf = (sn * (glm::dot(vel, sn) * -(1 + cpart->COR))) /
-					(1 / mass + glm::dot(sn, glm::cross(temp, lp)));
-				impulse += nf;
-				ang_impulse += glm::cross(lp, nf);
-			}
-			//deal with regular forces
-			force += position * (-soi->gravity / pow(glm::length(position), 3));//gravity
-
-			//deal with tangential force(if we do have a collision)
-			tot_impulse = impulse + force * step;
-			tot_aimpulse = ang_impulse + ang_force * step;
-			if (!last) {
-				double repose = glm::dot(sn, position) / glm::length(sn) / glm::length(position);
-				double repose2 = atan(cpart->COF);
-				t_impulse = tot_impulse + glm::cross(tot_aimpulse, lp);
-				l_nimpulse = glm::dot(sn, t_impulse);
-				n_impulse = sn * l_nimpulse;
-				t_impulse -= n_impulse;
-				t_rimp = t_impulse + (vel - sn * glm::dot(sn, vel)) * mass;
-				if (l_nimpulse > 0) {
-					l_trimp = glm::length(t_rimp);
-					friction = cpart->COF * l_nimpulse;
-					friction = min(friction, l_trimp);
-					tf = (friction / l_trimp) * t_rimp;
-					tot_impulse += tf;
-					tot_aimpulse += glm::cross(lp, tf);
+				if (
+					glm::dot(sn, velocity) < 1e-4 &&
+					acos(glm::compMax(abs(lsn))) < PI / 480 &&
+					glm::dot(sn, regularForces(t + elapsed)) < 0
+					) {
+					//TODO:Use a more sophisticated check so that
+					//cases where no faces are touching the ground
+					//are considered too(also store the normal of the "face")
+					//(do it by counting the number of closest corners
+					//less than some distance away from the surface,
+					//if that number is more than 2,we get into the sliding state)
+					situ = ShipSituation::SlIDING;
 				}
-			}
-			//integrate
-			velocity += tot_impulse / mass;
-			avel += glm::inverse(inertialTensor) * (glm::inverse(angle) * tot_aimpulse);
-			position += velocity * step;
-			double l = glm::length(avel);
-			if (l != 0) {
-				angle = angle * glm::angleAxis(l * step, avel / l);
-				angle = glm::normalize(angle);
+				else {
+					temp = glm::rotate(glm::inverse(angle), glm::cross(lp, sn));
+					temp = glm::rotate(angle, glm::inverse(inertialTensor) * temp);
+					glm::dvec3 nf = (sn * (glm::dot(vel, sn) * -(1 + cpart->COR))) /
+						(1 / mass + glm::dot(sn, glm::cross(temp, lp)));
+					//TODO:sometimes energy is gained during a collision?
+					velocity += nf / mass;
+					avel += glm::inverse(inertialTensor) * (glm::inverse(angle) * glm::cross(lp, nf));
+				}
+				
 			}
 		}
 		orbit.set(position, velocity, t);
+	}
+	void integrate(double t, double dt, glm::dvec3 impulse, glm::dvec3 aimpulse,glm::dvec3 foverride=glm::dvec3(0)) {
+		glm::dvec3 force;
+		if (foverride == glm::dvec3(0))force = regularForces(t);
+		else force = foverride;
+		velocity += (force * dt + impulse) / mass;
+		avel += glm::inverse(inertialTensor) * (glm::inverse(angle) * aimpulse);
+		position += velocity * dt - force * (dt * dt / mass / 2);
+		double l = glm::length(avel);
+		if (l != 0) {
+			angle = angle * glm::angleAxis(l * dt, avel / l);
+			angle = glm::normalize(angle);
+		}
+	}
+	glm::dvec3 regularForces(double t) {
+		return position * (-mass * soi->gravity / pow(glm::length(position), 3));//gravity
 	}
 	double checkCollision(double maxDT, glm::dvec3& ret_position, glm::dvec3& contact_normal, shared_ptr<GridElement>& part) {
 		//return +inf for no result,otherwise return time to collision
 		double EP = 1e-8;
 		double r, th, ph;
-		glm::dvec3 pos,localpos;
+		glm::dvec3 pos, localpos;
 		glm::dquat ang;
 		double l_of_avel = glm::length(avel), speed = glm::length(velocity);
 		glm::dvec3 rb, thb, phb, sn, cc;
 		double alt, rho, dts;
-		double step = maxDT/10;//artificially introduce tunnelling :(
+		double step = maxDT / 10;//artificially introduce tunnelling :(
 		//maxDT is expected to be PHYSICS_DT
 		//design the tunnelling around that
 		//at the same time the divisor(here 10) represents how many steps the linear searching does
@@ -1132,7 +1254,7 @@ public:
 			//initialization
 			pos = position + velocity * time;
 			if (l_of_avel != 0) {
-				ang = angle * glm::angleAxis(l_of_avel * time, avel/l_of_avel);
+				ang = angle * glm::angleAxis(l_of_avel * time, avel / l_of_avel);
 			}
 			else {
 				ang = angle;
