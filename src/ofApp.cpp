@@ -1,6 +1,6 @@
 #include "ofApp.h"
-GridElement root("test", 1, 0.9, 0.15);
-GridElement t("test2", 1, 0.9, 0.15);
+GridElement root("test", 1, 0.7, 0.15);
+GridElement t("test2", 1, 0.7, 0.15);
 PhysicsGrid p(make_shared<GridElement>(root), { 574134.9,0,0 }, { -1,0,0 }, planets[0], 0);
 double initialEnergy;
 //orbital speed at 680000=2278.9316
@@ -101,6 +101,10 @@ void ofApp::draw(){
 		glm::dvec3 test = planets[0]->terrain.getSurfaceNormal(p.position);
 		double d = glm::length(p.position) - planets[0]->radius * (1 + planets[0]->terrain.get(p.position));
 		drawPlaneWithNormal(test, d*DM3_SCALE, 1000);
+		for (auto& pair : p.contacts) {
+			ofSetColor(255, 255, 255);
+			ofDrawSphere(DM3_SCALE * (p.angle * pair.first), 16);
+		}
 		ofDisableDepthTest();
 		camera.end();
 		ofPopMatrix();

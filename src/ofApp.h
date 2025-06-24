@@ -826,13 +826,42 @@ string printSituation(ShipSituation situ) {
 		return "idk";
 	}
 }
-glm::dvec3 getAlignedAxis(glm::dvec3 v) {
-	double x = abs(v.x), y = abs(v.y), z = abs(v.z);
-	if (x > y && x > z)return glm::dvec3(glm::sign(v.x), 0, 0);
-	if (y > x && y > z)return glm::dvec3(0, glm::sign(v.y), 0);
-	if (z > x && z > y)return glm::dvec3(0, 0, glm::sign(v.z));
+glm::dvec3 getAlignedAxis(glm::dvec3 v, vector<pair<glm::dvec3, double>>& c) {
+	//returns normal of array of vectors aligned with the normal v
+	//if the array is colinear,returns {nan,nan,nan}
+	
+	//proof that selecting any two points from any array with atleast three points
+	//non-colinear,there is atleast one point that the three points are not colinear:
+	//suppose the three non-colinear points are a,b,c
+	//if the two points are colinear to a and b,choose c
+	//if one is colinear to a and b,choose another point colinear to 
+	//a and b that is not the point.the three points are not colinear
+	//because the other point does not belong in the line of the point and the chosen point.
+	//if neither are colinear to a and b,choose a if a is not colinear,otherwise b
+	//if the resultant three points are colinear then a b and the line the two points
+	//are on are actually the same line,which is wrong
+	//"simple" trick to save time complexity lol
+	if (c.size() < 3)return glm::dvec3(0) / 0.0;
+	glm::dvec3 x = c[0].first, y = c[1].first, r;
+	for (int i = 2; i < c.size(); i++){
+		r = glm::cross(y - x, c[2].first - x);
+		if (r != glm::dvec3(0, 0, 0))break;
+	}
+	r = glm::normalize(r);
+	if (glm::dot(r, v) < 0)return r;
+	return -r;
 }
 const double SF_BONUS = 1.25;
+glm::dvec3 corners_of_unit_cube[8] = {
+	{-0.5,-0.5,-0.5},
+	{-0.5,-0.5,0.5},
+	{-0.5,0.5,-0.5},
+	{-0.5,0.5,0.5},
+	{0.5,-0.5,-0.5},
+	{0.5,-0.5,0.5},
+	{0.5,0.5,-0.5},
+	{0.5,0.5,0.5}
+};
 class PhysicsGrid {
 public:
 	shared_ptr<Planet> soi;
@@ -844,6 +873,7 @@ public:
 	//in local space apparently
 	OrbitalElements orbit;
 	ShipSituation situ=ShipSituation::FLYING;
+	vector<pair<glm::dvec3,double>> contacts;//local position/friction coefficient
 	//remember after each state switch justify that the subsequent code does handle the state again
 	PhysicsGrid(shared_ptr<GridElement> root, glm::dvec3 p, glm::dvec3 v,shared_ptr<Planet> planet,double t)
 	:orbit(planet,p,v,t){
@@ -1060,6 +1090,23 @@ public:
 		glm::dvec3 lsn = glm::inverse(angle) * sn;
 		glm::dvec3 nvel = sn * glm::dot(sn, velocity);
 		glm::dvec3 tvel = velocity - nvel;
+		contacts.clear();
+		double alt = glm::length(position) - soi->radius * (1 + soi->terrain.get(position));
+		double EP_CONTACT = 0.01;
+		for (auto& ptr : contents) {
+			for (auto& cc : corners_of_unit_cube) {
+				glm::dvec3 localpos = ptr.first + glm::dvec3(0.5, 0.5, 0.5) - COM + cc;
+				//note that here localpos is actually local,as opposed to the other copies of this loop
+				//also note that because we are seeking all answers,
+				//not just the one closest to the plane,we need to have an inner loop
+				if (glm::dot(-sn, angle * localpos) > alt - EP_CONTACT) {
+					contacts.push_back({ localpos,ptr.second->COF });
+				}
+			}
+		}
+		glm::dvec3 axis = getAlignedAxis(lsn, contacts);
+		bool isSliding = contacts.size() >= 3 && !glm::any(glm::isnan(axis));
+		if (!isSliding && situ != ShipSituation::FLYING)throw "not fast enough";
 		if (situ == ShipSituation::LANDED) {
 			glm::dvec3 force = regularForces(t);
 			if (glm::dot(sn, force) > 0) {
@@ -1067,19 +1114,13 @@ public:
 				integrate(t, dt, glm::dvec3(0), glm::dvec3(0));
 			}
 			else{
-				shared_ptr<GridElement> cpart;
-				double mindist = numeric_limits<double>::infinity();
-				for (auto& ptr : contents) {
-					glm::dvec3 cc = -0.5 * glm::sign(glm::inverse(angle) * sn);
-					glm::dvec3 localpos = glm::rotate(angle, ptr.first + glm::dvec3(0.5, 0.5, 0.5) - COM + cc);
-					if (glm::dot(-sn, localpos) < mindist) {
-						mindist = glm::dot(-sn, localpos);
-						cpart = ptr.second;
-					}
-				}
 				glm::dvec3 nf = sn * glm::dot(sn, force);
 				glm::dvec3 tf = force - nf;
-				double friction = glm::length(nf) * cpart->COF;
+				double friction = 0;
+				for (auto& pair : contacts) {
+					friction += pair.second;
+				}
+				friction *= glm::length(nf) / contacts.size();
 				if (friction * SF_BONUS > glm::length(tf)) {
 					velocity = glm::dvec3(0);
 					avel = glm::dvec3(0);
@@ -1089,8 +1130,8 @@ public:
 					//this actually omits one frame of friction,but whatever
 					integrate(t, dt, glm::dvec3(0), glm::dvec3(0), tf);
 				}
-				angle = angle * glm::rotation(getAlignedAxis(lsn), lsn);
-				double dist = soi->radius * (1 + soi->terrain.get(position)) + mindist;
+				angle = angle * glm::rotation(-axis, lsn);
+				double dist = soi->radius * (1 + soi->terrain.get(position)) + glm::dot(contacts[0].first, axis);
 				position = dist * glm::normalize(position);
 			}
 		}
@@ -1102,22 +1143,17 @@ public:
 				integrate(t, dt, glm::dvec3(0), glm::dvec3(0));
 			}
 			else {
-				shared_ptr<GridElement> cpart;
-				double mindist = numeric_limits<double>::infinity();
-				for (auto& ptr : contents) {
-					glm::dvec3 cc = -0.5 * glm::sign(glm::inverse(angle) * sn);
-					glm::dvec3 localpos = glm::rotate(angle, ptr.first + glm::dvec3(0.5, 0.5, 0.5) - COM + cc);
-					if (glm::dot(-sn, localpos) < mindist) {
-						mindist = glm::dot(-sn, localpos);
-						cpart = ptr.second;
-					}
-				}
 				// double slope = acos(glm::dot(sn, glm::normalize(position)));
 				// double repose = atan(cpart->COF * SF_BONUS);
 				glm::dvec3 nf = sn * glm::dot(sn, force);
 				glm::dvec3 tf = force - nf;
-				double friction = glm::length(nf) * dt * cpart->COF;
+				double friction = 0;
+				for (auto& pair : contacts) {
+					friction += pair.second;
+				}
+				friction *= glm::length(nf) * (dt / contacts.size());
 				if (friction * SF_BONUS > glm::length(velocity * mass + tf * dt)) {
+					//TODO:take into account rotation in the above condition
 					situ = ShipSituation::LANDED;
 					velocity = glm::dvec3(0);
 					avel = glm::dvec3(0);
@@ -1126,11 +1162,11 @@ public:
 					glm::dvec3 maxFriction = velocity * mass + tf * dt;
 					friction = min(friction, glm::length(maxFriction));
 					//TODO:More correctly calculate angular friction
-					avel += glm::inverse(inertialTensor) * (-cpart->COF * avel * dt);
+					//avel += glm::inverse(inertialTensor) * (-cpart->COF * avel * dt);
 					integrate(t, dt, -friction * glm::normalize(maxFriction), glm::dvec3(0), tf);
 				}
-				angle = angle * glm::rotation(getAlignedAxis(lsn), lsn);
-				double dist = soi->radius * (1 + soi->terrain.get(position)) + mindist;
+				angle = angle * glm::rotation(-axis, lsn);
+				double dist = soi->radius * (1 + soi->terrain.get(position)) + glm::dot(contacts[0].first, axis);
 				position = dist * glm::normalize(position);
 			}
 		}
@@ -1141,7 +1177,6 @@ public:
 				glm::dvec3 lp;
 				shared_ptr<GridElement> cpart;
 				double step = checkCollision(dt - elapsed, lp, temp, cpart);
-
 				if (step >= dt - elapsed) {
 					step = dt - elapsed;//last segment
 					integrate(t + elapsed, step, glm::dvec3(0), glm::dvec3(0));
@@ -1150,19 +1185,39 @@ public:
 				}
 				integrate(t + elapsed, step, glm::dvec3(0), glm::dvec3(0));
 				elapsed += step;
+				contacts.clear();
+				double alt = glm::length(position) - soi->radius * (1 + soi->terrain.get(position));
+				double EP_CONTACT = 0.01;
+				for (auto& ptr : contents) {
+					for (auto& cc : corners_of_unit_cube) {
+						glm::dvec3 localpos = ptr.first + glm::dvec3(0.5, 0.5, 0.5) - COM + cc;
+						//note that here localpos is actually local,as opposed to the other copies of this loop
+						//also note that because we are seeking all answers,
+						//not just the one closest to the plane,we need to have an inner loop
+						if (glm::dot(-sn, angle * localpos) > alt - EP_CONTACT) {
+							contacts.push_back({ localpos,ptr.second->COF });
+						}
+					}
+				}
+				glm::dvec3 axis = getAlignedAxis(lsn, contacts);
+				bool isSliding = contacts.size() >= 3 && !glm::any(glm::isnan(axis));
 				glm::dvec3 vel = velocity + glm::cross(glm::rotate(angle, avel), lp);
+				glm::dvec3 force = regularForces(t + elapsed);
 				if (
 					glm::dot(sn, velocity) < 1e-4 &&
-					acos(glm::compMax(abs(lsn))) < PI / 480 &&
-					glm::dot(sn, regularForces(t + elapsed)) < 0
+					isSliding &&
+					glm::dot(sn, force) < 0
 					) {
-					//TODO:Use a more sophisticated check so that
-					//cases where no faces are touching the ground
-					//are considered too(also store the normal of the "face")
-					//(do it by counting the number of closest corners
-					//less than some distance away from the surface,
-					//if that number is more than 2,we get into the sliding state)
 					situ = ShipSituation::SlIDING;
+					//yeah this again omits (this time less than)one frame of friction
+					//who cares
+					step = dt - elapsed;
+					integrate(t + elapsed, step, glm::dvec3(0), glm::dvec3(0), force - sn * glm::dot(sn, force));
+					elapsed = dt;
+					angle = angle * glm::rotation(-axis, lsn);
+					double dist = soi->radius * (1 + soi->terrain.get(position)) + glm::dot(contacts[0].first, axis);
+					position = dist * glm::normalize(position);
+					break;
 				}
 				else {
 					temp = glm::rotate(glm::inverse(angle), glm::cross(lp, sn));
@@ -1170,6 +1225,7 @@ public:
 					glm::dvec3 nf = (sn * (glm::dot(vel, sn) * -(1 + cpart->COR))) /
 						(1 / mass + glm::dot(sn, glm::cross(temp, lp)));
 					//TODO:sometimes energy is gained during a collision?
+					//(probably just when the ship is really close to being sliding lol)
 					velocity += nf / mass;
 					avel += glm::inverse(inertialTensor) * (glm::inverse(angle) * glm::cross(lp, nf));
 				}
@@ -1196,6 +1252,7 @@ public:
 	}
 	double checkCollision(double maxDT, glm::dvec3& ret_position, glm::dvec3& contact_normal, shared_ptr<GridElement>& part) {
 		//return +inf for no result,otherwise return time to collision
+		//btw not to be called when situ is sliding or landed for obvious reasons
 		double EP = 1e-8;
 		double r, th, ph;
 		glm::dvec3 pos, localpos;
@@ -1289,13 +1346,14 @@ public:
 		//check if collision is at or before 0
 		if (ta != 0)return ta;
 		//pull out of surface and try again
-		double mindist = numeric_limits<double>::infinity();
+		double mindist = -numeric_limits<double>::infinity();
+		glm::dvec3 psn = glm::normalize(position);
 		for (auto& ptr : contents) {
-			cc = -0.5 * glm::sign(glm::inverse(angle) * sn);
+			cc = -0.5 * glm::sign(glm::inverse(angle) * psn);
 			localpos = glm::rotate(angle, ptr.first + glm::dvec3(0.5, 0.5, 0.5) - COM + cc);
-			mindist = min(mindist, glm::dot(-sn, localpos));
+			mindist = max(mindist, glm::dot(-psn, localpos));
 		}
-		position += sn * (glm::length(position) - H * soi->radius - mindist);
+		position -= psn * (glm::length(position) - H * soi->radius - mindist - EP);
 		return checkCollision(maxDT, ret_position, contact_normal, part);
 	}
 	double totalEnergy() {
