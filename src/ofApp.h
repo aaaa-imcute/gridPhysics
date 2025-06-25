@@ -1064,6 +1064,7 @@ public:
 		}
 	}
 	void updatePhysics(double t, double dt) {
+		//TODO:Many parts assume that only contact forces can be off-center
 		glm::dvec3 gp = position + soi->apos(t);
 		shared_ptr<Planet> p;
 		double dist = std::numeric_limits<double>::infinity();
@@ -1116,7 +1117,12 @@ public:
 			else{
 				glm::dvec3 nf = sn * glm::dot(sn, force);
 				glm::dvec3 tf = force - nf;
-				double friction = 0;
+				double friction = 0;//okay so this approximation,that normal forces are
+				//distributed equally,is only valid when all non-contact forces act
+				//on the COM(no net torque)
+				//if there is torque a linear equation with two variables needs to be solved
+				//and friction=sum of ax+by+c where a and b is 0 without net torque
+				//and x and y are local coordinates of the contact points
 				for (auto& pair : contacts) {
 					friction += pair.second;
 				}
@@ -1147,24 +1153,32 @@ public:
 				// double repose = atan(cpart->COF * SF_BONUS);
 				glm::dvec3 nf = sn * glm::dot(sn, force);
 				glm::dvec3 tf = force - nf;
-				double friction = 0;
+				double friction = 0, normal_force = glm::length(nf) / contacts.size();
+				//glm::dvec3 torque;//total torque impulse from friction
 				for (auto& pair : contacts) {
-					friction += pair.second;
+					friction += pair.second * normal_force;
+					//glm::dvec3 fdir = -glm::normalize(velocity + angle * glm::cross(avel, pair.first));
+					//torque += glm::cross(fdir * pair.second * normal_force * dt, pair.first);
 				}
-				friction *= glm::length(nf) * (dt / contacts.size());
-				if (friction * SF_BONUS > glm::length(velocity * mass + tf * dt)) {
-					//TODO:take into account rotation in the above condition
+				friction *= dt;
+				glm::dvec3 maxFriction = velocity * mass + tf * dt;
+				if (friction * SF_BONUS > glm::length(maxFriction) && glm::length(avel) * radius < 0.01) {
+					//TODO:take into account rotation in the above condition properly
 					situ = ShipSituation::LANDED;
 					velocity = glm::dvec3(0);
 					avel = glm::dvec3(0);
 				}
 				else {
-					glm::dvec3 maxFriction = velocity * mass + tf * dt;
 					friction = min(friction, glm::length(maxFriction));
 					//TODO:More correctly calculate angular friction
-					//avel += glm::inverse(inertialTensor) * (-cpart->COF * avel * dt);
+					//this is more like "angular drag"
+					//since linear drag is linear and so no matter what the velocity is
+					//the angular "drag" is the same
+					avel += glm::inverse(inertialTensor) * (-friction/glm::length(nf) * avel);
 					integrate(t, dt, -friction * glm::normalize(maxFriction), glm::dvec3(0), tf);
 				}
+				velocity = velocity - sn * glm::dot(sn, velocity);
+				avel = sn * glm::dot(sn, avel);
 				angle = angle * glm::rotation(-axis, lsn);
 				double dist = soi->radius * (1 + soi->terrain.get(position)) + glm::dot(contacts[0].first, axis);
 				position = dist * glm::normalize(position);
