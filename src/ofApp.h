@@ -1063,6 +1063,66 @@ public:
 			if (glm::length(pos) > radius)radius = glm::length(pos);
 		}
 	}
+	glm::dvec3 calculateContacts(glm::dvec3 sn) {
+		contacts.clear();
+		double alt = glm::length(position) - soi->radius * (1 + soi->terrain.get(position));
+		double EP_CONTACT = 0.01;
+		for (auto& ptr : contents) {
+			for (auto& cc : corners_of_unit_cube) {
+				glm::dvec3 localpos = ptr.first + glm::dvec3(0.5, 0.5, 0.5) - COM + cc;
+				//note that here localpos is actually local,as opposed to the other copies of this loop
+				//also note that because we are seeking all answers,
+				//not just the one closest to the plane,we need to have an inner loop
+				if (glm::dot(-sn, angle * localpos) > alt - EP_CONTACT) {
+					contacts.push_back({ localpos,ptr.second->COF });
+				}
+			}
+		}
+		glm::dvec3 axis = getAlignedAxis(glm::inverse(angle) * sn, contacts);
+		bool isSliding = contacts.size() >= 3 && !glm::any(glm::isnan(axis));
+		if (!isSliding && situ != ShipSituation::FLYING)throw "not fast enough";
+		return axis;
+	}
+	glm::dvec3 computeNFDistribution(glm::dvec3 kh, glm::dvec3 force, glm::dvec3 torque) {
+		//force torque and normal(kh) must be local,i.e probably glm::inverse(angle)*force
+		//output:{a,b,c}
+
+		//so the object is resting on the surface,and the force of each contact must vary
+		//linearly according to their position because they belong to the same rigid body.
+		//this gives f(i)=a*x[i]+b*y[i]+c
+		//where sum(i=>f(i))=force => a*sum(x)+b*sum(y)+c=force
+		//sum(i=>f(i)*x[i])=torque.y => a*sum(i=>x[i]*x[i])+b*sum(i=>y[i]*x[i])+c=torque.y
+		//sum(i=>f(i)*y[i])=-torque.x => a*sum(i=>x[i]*y[i])+b*sum(i=>y[i]*y[i])+c=-torque.x
+		//we have three linear equations with three variables,which we can solve
+		glm::dvec3 ih, jh;
+		make_orthonormal_basis(kh, ih, jh);
+		double ix = 0, iy = 0, ixx = 0, ixy = 0, iyy = 0;
+		double x = glm::dot(torque, jh);
+		double y = -glm::dot(torque, ih);
+		double z = glm::dot(force, kh);
+		for (auto& pair : contacts) {
+			double vx = glm::dot(pair.first, ih);
+			double vy = glm::dot(pair.first, jh);
+			ix += vx;
+			iy += vy;
+			ixx += vx * vx;
+			ixy += vx * vy;
+			iyy += vy * vy;
+		}
+		//remember
+		//ixx*a+ixy*b+c=x
+		//ixy*a+iyy*b+c=y
+		//ix*a+iy*b+c=z
+		//c=z-ix*a-iy*b
+		//(ixx-ix)*a+(ixy-iy)*b=x-z
+		//(ixy-ix)*a+(iyy-iy)*b=y-z
+		double jxx = ixx - ix, jxy = ixy - iy, jyx = ixy - ix, jyy = iyy - iy, jx = x - z, jy = y - z;
+		double det = jxx * jyy - jxy * jyx;
+		double a = (jyy * jx - jxy * jy) / det, b = (jxx * jy - jyx * jx) / det;
+		double c = z - ix * a - iy * b;
+		return glm::dvec3(a, b, c);
+		//hope i did that right
+	}
 	void updatePhysics(double t, double dt) {
 		//TODO:Many parts assume that only contact forces can be off-center
 		glm::dvec3 gp = position + soi->apos(t);
@@ -1091,23 +1151,7 @@ public:
 		glm::dvec3 lsn = glm::inverse(angle) * sn;
 		glm::dvec3 nvel = sn * glm::dot(sn, velocity);
 		glm::dvec3 tvel = velocity - nvel;
-		contacts.clear();
-		double alt = glm::length(position) - soi->radius * (1 + soi->terrain.get(position));
-		double EP_CONTACT = 0.01;
-		for (auto& ptr : contents) {
-			for (auto& cc : corners_of_unit_cube) {
-				glm::dvec3 localpos = ptr.first + glm::dvec3(0.5, 0.5, 0.5) - COM + cc;
-				//note that here localpos is actually local,as opposed to the other copies of this loop
-				//also note that because we are seeking all answers,
-				//not just the one closest to the plane,we need to have an inner loop
-				if (glm::dot(-sn, angle * localpos) > alt - EP_CONTACT) {
-					contacts.push_back({ localpos,ptr.second->COF });
-				}
-			}
-		}
-		glm::dvec3 axis = getAlignedAxis(lsn, contacts);
-		bool isSliding = contacts.size() >= 3 && !glm::any(glm::isnan(axis));
-		if (!isSliding && situ != ShipSituation::FLYING)throw "not fast enough";
+		glm::dvec3 axis = calculateContacts(sn);
 		if (situ == ShipSituation::LANDED) {
 			glm::dvec3 force = regularForces(t);
 			if (glm::dot(sn, force) > 0) {
@@ -1199,27 +1243,13 @@ public:
 				}
 				integrate(t + elapsed, step, glm::dvec3(0), glm::dvec3(0));
 				elapsed += step;
-				contacts.clear();
-				double alt = glm::length(position) - soi->radius * (1 + soi->terrain.get(position));
-				double EP_CONTACT = 0.01;
-				for (auto& ptr : contents) {
-					for (auto& cc : corners_of_unit_cube) {
-						glm::dvec3 localpos = ptr.first + glm::dvec3(0.5, 0.5, 0.5) - COM + cc;
-						//note that here localpos is actually local,as opposed to the other copies of this loop
-						//also note that because we are seeking all answers,
-						//not just the one closest to the plane,we need to have an inner loop
-						if (glm::dot(-sn, angle * localpos) > alt - EP_CONTACT) {
-							contacts.push_back({ localpos,ptr.second->COF });
-						}
-					}
-				}
-				glm::dvec3 axis = getAlignedAxis(lsn, contacts);
-				bool isSliding = contacts.size() >= 3 && !glm::any(glm::isnan(axis));
+				glm::dvec3 axis = calculateContacts(sn);
 				glm::dvec3 vel = velocity + glm::cross(glm::rotate(angle, avel), lp);
 				glm::dvec3 force = regularForces(t + elapsed);
 				if (
 					glm::dot(sn, velocity) < 1e-4 &&
-					isSliding &&
+					contacts.size() >= 3 &&
+					!glm::any(glm::isnan(axis)) &&
 					glm::dot(sn, force) < 0
 					) {
 					situ = ShipSituation::SlIDING;
