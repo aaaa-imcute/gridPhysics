@@ -1080,12 +1080,15 @@ public:
 		}
 		glm::dvec3 axis = getAlignedAxis(glm::inverse(angle) * sn, contacts);
 		bool isSliding = contacts.size() >= 3 && !glm::any(glm::isnan(axis));
-		if (!isSliding && situ != ShipSituation::FLYING)throw "not fast enough";
+		if (!isSliding && situ != ShipSituation::FLYING) {
+			situ = ShipSituation::FLYING;
+		}
 		return axis;
 	}
 	glm::dvec3 computeNFDistribution(glm::dvec3 kh, glm::dvec3 force, glm::dvec3 torque) {
 		//force torque and normal(kh) must be local,i.e probably glm::inverse(angle)*force
 		//output:{a,b,c}
+		//also kh points into the planet i think?
 
 		//so the object is resting on the surface,and the force of each contact must vary
 		//linearly according to their position because they belong to the same rigid body.
@@ -1096,32 +1099,29 @@ public:
 		//we have three linear equations with three variables,which we can solve
 		glm::dvec3 ih, jh;
 		make_orthonormal_basis(kh, ih, jh);
-		double ix = 0, iy = 0, ixx = 0, ixy = 0, iyy = 0;
-		double x = glm::dot(torque, jh);
-		double y = -glm::dot(torque, ih);
-		double z = glm::dot(force, kh);
+		double tx = glm::dot(torque, jh);   // torque around ih
+		double ty = -glm::dot(torque, ih);  // torque around jh
+		double fz = glm::dot(force, kh);    // total normal force
+		double sum_x = 0, sum_y = 0;
+		double sum_xx = 0, sum_yy = 0, sum_xy = 0;
+		double n = static_cast<double>(contacts.size());
 		for (auto& pair : contacts) {
-			double vx = glm::dot(pair.first, ih);
-			double vy = glm::dot(pair.first, jh);
-			ix += vx;
-			iy += vy;
-			ixx += vx * vx;
-			ixy += vx * vy;
-			iyy += vy * vy;
+			double x = glm::dot(pair.first, ih);
+			double y = glm::dot(pair.first, jh);
+			sum_x += x;
+			sum_y += y;
+			sum_xx += x * x;
+			sum_yy += y * y;
+			sum_xy += x * y;
 		}
-		//remember
-		//ixx*a+ixy*b+c=x
-		//ixy*a+iyy*b+c=y
-		//ix*a+iy*b+c=z
-		//c=z-ix*a-iy*b
-		//(ixx-ix)*a+(ixy-iy)*b=x-z
-		//(ixy-ix)*a+(iyy-iy)*b=y-z
-		double jxx = ixx - ix, jxy = ixy - iy, jyx = ixy - ix, jyy = iyy - iy, jx = x - z, jy = y - z;
-		double det = jxx * jyy - jxy * jyx;
-		double a = (jyy * jx - jxy * jy) / det, b = (jxx * jy - jyx * jx) / det;
-		double c = z - ix * a - iy * b;
-		return glm::dvec3(a, b, c);
-		//hope i did that right
+		glm::dmat3 J = {
+			{sum_xx, sum_xy, sum_x},
+			{sum_xy, sum_yy, sum_y},
+			{sum_x, sum_y, n}
+		};
+		glm::dvec3 rhs = { tx, ty, fz };
+		glm::dvec3 abc = glm::inverse(J) * rhs;
+		return abc;
 	}
 	void updatePhysics(double t, double dt) {
 		//TODO:Many parts assume that only contact forces can be off-center
@@ -1161,16 +1161,11 @@ public:
 			else{
 				glm::dvec3 nf = sn * glm::dot(sn, force);
 				glm::dvec3 tf = force - nf;
-				double friction = 0;//okay so this approximation,that normal forces are
-				//distributed equally,is only valid when all non-contact forces act
-				//on the COM(no net torque)
-				//if there is torque a linear equation with two variables needs to be solved
-				//and friction=sum of ax+by+c where a and b is 0 without net torque
-				//and x and y are local coordinates of the contact points
+				glm::dvec3 fd = computeNFDistribution(-lsn, glm::inverse(angle) * force, glm::dvec3(0));
+				double friction = 0;
 				for (auto& pair : contacts) {
-					friction += pair.second;
+					friction += (pair.first.x * fd.x + pair.first.y * fd.y + fd.z) * pair.second;
 				}
-				friction *= glm::length(nf) / contacts.size();
 				if (friction * SF_BONUS > glm::length(tf)) {
 					velocity = glm::dvec3(0);
 					avel = glm::dvec3(0);
@@ -1197,12 +1192,10 @@ public:
 				// double repose = atan(cpart->COF * SF_BONUS);
 				glm::dvec3 nf = sn * glm::dot(sn, force);
 				glm::dvec3 tf = force - nf;
-				double friction = 0, normal_force = glm::length(nf) / contacts.size();
-				//glm::dvec3 torque;//total torque impulse from friction
+				glm::dvec3 fd = computeNFDistribution(-lsn, glm::inverse(angle) * force, glm::dvec3(0));
+				double friction = 0;
 				for (auto& pair : contacts) {
-					friction += pair.second * normal_force;
-					//glm::dvec3 fdir = -glm::normalize(velocity + angle * glm::cross(avel, pair.first));
-					//torque += glm::cross(fdir * pair.second * normal_force * dt, pair.first);
+					friction += (pair.first.x * fd.x + pair.first.y * fd.y + fd.z) * pair.second;
 				}
 				friction *= dt;
 				glm::dvec3 maxFriction = velocity * mass + tf * dt;
@@ -1218,7 +1211,7 @@ public:
 					//this is more like "angular drag"
 					//since linear drag is linear and so no matter what the velocity is
 					//the angular "drag" is the same
-					avel += glm::inverse(inertialTensor) * (-friction/glm::length(nf) * avel);
+					avel += glm::inverse(inertialTensor) * (-friction * avel);
 					integrate(t, dt, -friction * glm::normalize(maxFriction), glm::dvec3(0), tf);
 				}
 				velocity = velocity - sn * glm::dot(sn, velocity);
@@ -1391,13 +1384,21 @@ public:
 		if (ta != 0)return ta;
 		//pull out of surface and try again
 		double mindist = -numeric_limits<double>::infinity();
-		glm::dvec3 psn = glm::normalize(position);
+		pos = position + velocity * time;
+		if (l_of_avel != 0) {
+			ang = angle * glm::angleAxis(l_of_avel * time, avel / l_of_avel);
+		}
+		else {
+			ang = angle;
+		}
+		glm::dvec3 psn = glm::normalize(pos);
 		for (auto& ptr : contents) {
-			cc = -0.5 * glm::sign(glm::inverse(angle) * psn);
-			localpos = glm::rotate(angle, ptr.first + glm::dvec3(0.5, 0.5, 0.5) - COM + cc);
+			cc = -0.5 * glm::sign(glm::inverse(ang) * psn);
+			localpos = glm::rotate(ang, ptr.first + glm::dvec3(0.5, 0.5, 0.5) - COM + cc);
 			mindist = max(mindist, glm::dot(-psn, localpos));
 		}
-		position -= psn * (glm::length(position) - H * soi->radius - mindist - EP);
+		position -= psn * (glm::length(pos) - H * soi->radius - mindist - EP);
+		//TODO:in some cases this function recurses infinitely?
 		return checkCollision(maxDT, ret_position, contact_normal, part);
 	}
 	double totalEnergy() {
