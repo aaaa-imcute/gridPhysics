@@ -1,7 +1,7 @@
 #include "ofApp.h"
 GridElement root("test", 1, 0.7, 0.15);
 GridElement t("test2", 1, 0.7, 0.15);
-PhysicsGrid p(make_shared<GridElement>(root), { 574134.9,0,0 }, { -1,0,0 }, planets[0], 0);
+PhysicsGrid p(make_shared<GridElement>(root), { 574134.9,0,0 }, { 0,0,10.0 }, planets[0], 0);
 double initialEnergy;
 //orbital speed at 680000=2278.9316
 void ofApp::setup(){

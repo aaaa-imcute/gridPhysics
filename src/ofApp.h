@@ -1162,16 +1162,20 @@ public:
 				glm::dvec3 nf = sn * glm::dot(sn, force);
 				glm::dvec3 tf = force - nf;
 				glm::dvec3 fd = computeNFDistribution(-lsn, glm::inverse(angle) * force, glm::dvec3(0));
-				double friction = 0;
+				glm::dvec3 friction, ft;
 				for (auto& pair : contacts) {
-					friction += (pair.first.x * fd.x + pair.first.y * fd.y + fd.z) * pair.second;
+					glm::dvec3 vel = velocity + angle * glm::cross(avel, pair.first);
+					double ef = glm::length(vel) * mass / dt;
+					double f = (pair.first.x * fd.x + pair.first.y * fd.y + fd.z) * pair.second;
+					if (f * SF_BONUS < ef) situ = ShipSituation::SlIDING;
+					f = min(f, ef);
+					glm::dvec3 fr = -f * glm::normalize(vel);
+					friction += fr;
+					ft += glm::cross(angle * pair.first, fr);
 				}
-				if (friction * SF_BONUS > glm::length(tf)) {
-					velocity = glm::dvec3(0);
-					avel = glm::dvec3(0);
-				}
-				else {
-					situ = ShipSituation::SlIDING;
+				velocity = glm::dvec3(0);
+				avel = glm::dvec3(0);
+				if (situ==ShipSituation::SlIDING){
 					//this actually omits one frame of friction,but whatever
 					integrate(t, dt, glm::dvec3(0), glm::dvec3(0), tf);
 				}
@@ -1183,7 +1187,7 @@ public:
 		else if (situ == ShipSituation::SlIDING) {
 			glm::dvec3 force = regularForces(t);
 			if (glm::dot(sn, force) > 0) {
-				//TODO:account for toppling over(COM outside contact points)
+				//TODO:account for toppling over(COM outside contact points or torque doing sth)
 				situ = ShipSituation::FLYING;
 				integrate(t, dt, glm::dvec3(0), glm::dvec3(0));
 			}
@@ -1193,26 +1197,21 @@ public:
 				glm::dvec3 nf = sn * glm::dot(sn, force);
 				glm::dvec3 tf = force - nf;
 				glm::dvec3 fd = computeNFDistribution(-lsn, glm::inverse(angle) * force, glm::dvec3(0));
-				double friction = 0;
+				glm::dvec3 friction, ft;
+				if(glm::length(avel) * radius < 0.01)situ = ShipSituation::LANDED;
 				for (auto& pair : contacts) {
-					friction += (pair.first.x * fd.x + pair.first.y * fd.y + fd.z) * pair.second;
+					glm::dvec3 vel = velocity + angle * glm::cross(avel, pair.first);
+					double ef = glm::length(vel) * mass / dt;
+					double f = (pair.first.x * fd.x + pair.first.y * fd.y + fd.z) * pair.second;
+					if (f * SF_BONUS < ef) situ = ShipSituation::SlIDING;
+					f = min(f, ef);
+					glm::dvec3 fr = -f * glm::normalize(vel);
+					friction += fr;
+					ft += glm::cross(angle * pair.first, fr);
 				}
-				friction *= dt;
-				glm::dvec3 maxFriction = velocity * mass + tf * dt;
-				if (friction * SF_BONUS > glm::length(maxFriction) && glm::length(avel) * radius < 0.01) {
-					//TODO:take into account rotation in the above condition properly
-					situ = ShipSituation::LANDED;
-					velocity = glm::dvec3(0);
-					avel = glm::dvec3(0);
-				}
-				else {
-					friction = min(friction, glm::length(maxFriction));
-					//TODO:More correctly calculate angular friction
-					//this is more like "angular drag"
-					//since linear drag is linear and so no matter what the velocity is
-					//the angular "drag" is the same
-					avel += glm::inverse(inertialTensor) * (-friction * avel);
-					integrate(t, dt, -friction * glm::normalize(maxFriction), glm::dvec3(0), tf);
+				if (situ == ShipSituation::SlIDING) {
+					integrate(t, dt, glm::dvec3(0), ft * dt, tf + friction);
+					//TODO:this is continuous torque,do that in the integrate function
 				}
 				velocity = velocity - sn * glm::dot(sn, velocity);
 				avel = sn * glm::dot(sn, avel);
@@ -1223,7 +1222,7 @@ public:
 		}
 		else {
 			double elapsed = 0;
-			while (1) {
+			while (dt-elapsed>1e-6) {
 				//check for collision
 				glm::dvec3 lp;
 				shared_ptr<GridElement> cpart;
@@ -1378,27 +1377,24 @@ public:
 				time = (ta + tb) / 2;
 			}
 			else time -= step;
-		} while (tb - ta > EP && time - step > ta);
+		} while (bisection?(tb - ta > EP):(time - step > ta));
 		if (!bisection)return numeric_limits<double>::infinity();
 		//check if collision is at or before 0
 		if (ta != 0)return ta;
 		//pull out of surface and try again
-		double mindist = -numeric_limits<double>::infinity();
-		pos = position + velocity * time;
-		if (l_of_avel != 0) {
-			ang = angle * glm::angleAxis(l_of_avel * time, avel / l_of_avel);
-		}
-		else {
-			ang = angle;
-		}
-		glm::dvec3 psn = glm::normalize(pos);
-		for (auto& ptr : contents) {
-			cc = -0.5 * glm::sign(glm::inverse(ang) * psn);
-			localpos = glm::rotate(ang, ptr.first + glm::dvec3(0.5, 0.5, 0.5) - COM + cc);
-			mindist = max(mindist, glm::dot(-psn, localpos));
-		}
-		position -= psn * (glm::length(pos) - H * soi->radius - mindist - EP);
-		//TODO:in some cases this function recurses infinitely?
+		do {
+			position += sn * step;
+			alt = glm::length(position);
+			dts = alt - H * soi->radius;
+			cc = -0.5 * glm::sign(glm::inverse(angle) * sn);
+			bisection = false;
+			for (auto& ptr : contents) {
+				localpos = glm::rotate(angle, ptr.first + glm::dvec3(0.5, 0.5, 0.5) - COM + cc);
+				if (glm::dot(-sn, localpos) < dts) continue;
+				bisection = true;
+				break;
+			}
+		} while (bisection);
 		return checkCollision(maxDT, ret_position, contact_normal, part);
 	}
 	double totalEnergy() {
