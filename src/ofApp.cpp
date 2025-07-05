@@ -1,14 +1,13 @@
 #include "ofApp.h"
 GridElement root("fire-tank", 1, 0.7, 0.15);
 //GridElement t("test2", 1, 0.7, 0.15);
-PhysicsGrid p(make_shared<GridElement>(root), { 574134.9,0,0 }, { 0,0,10.0 }, planets[0], 0);
+shared_ptr<PhysicsGrid> p;
 double initialEnergy;
 //orbital speed at 680000=2278.9316
 void ofApp::setup(){
 	compute_legendre_coeff();
 	ofDisableAntiAliasing();
 	ofDisableBlendMode();
-	createAtlas();
 	sunLight = make_shared<ofLight>(ofLight());
 	sunLight->setPointLight();
 	sunLight->setSpecularColor(ofColor::white);
@@ -24,11 +23,16 @@ void ofApp::setup(){
 		}
 		return plains.getLerped(mountains, h * 2 - 1);
 		};
-	createPlanetAtlas();
 	planets[0]->terrain.generate(436, 0.1, 2);
+	planetAtlasReady = false;//do this after every change made to the terrain or color scheme of a planet
+	createPlanetAtlas();//for some reason this doesnt work in the display methods of the planet class
+	//it only works here
+	//TODO:find out why
+	PhysicsGrid p1(make_shared<GridElement>(root), { 574134.9,0,0 }, { 0,0,10.0 }, planets[0], 0);
+	p = make_shared<PhysicsGrid>(p1);
 	//t.rotateRightFace();
 	//p.setItem(make_shared<GridElement>(t), 0, 1, 0);
-	initialEnergy = p.totalEnergy();
+	initialEnergy = p->totalEnergy();
 }
 constexpr double PHYSICS_DT = 1.0/600;
 double remainingSimulation = 0.0;
@@ -38,12 +42,12 @@ void ofApp::update(){
 	if (sceneDisplayed != 2/* && keys[' ']*/) {
 		remainingSimulation += ofGetLastFrameTime();
 		for (; remainingSimulation > PHYSICS_DT; remainingSimulation -= PHYSICS_DT) {
-			p.updatePhysics(totalTime,PHYSICS_DT);
+			p->updatePhysics(totalTime,PHYSICS_DT);
 			totalTime += PHYSICS_DT;
 		}
 	}
 	if (keys['r']) {
-		p.angle = glm::inverse(camera.getGlobalOrientation());
+		p->angle = glm::inverse(camera.getGlobalOrientation());
 	}
 	
 }
@@ -69,7 +73,7 @@ void ofApp::draw(){
 		}
 		ofDisableLighting();
 		sunLight->disable();
-		p.displayMode1(totalTime);
+		p->displayMode1(totalTime);
 		//ofDrawAxis(256);
 		ofDisableDepthTest();
 		camera.end();
@@ -80,7 +84,7 @@ void ofApp::draw(){
 		ofScale(mapScale);
 		ofTranslate(mapPos);
 		if (mouse[2])selectedPart = nullptr;
-		p.displayMode2(0);
+		p->displayMode2(0);
 		//ofSetColor(255, 255, 255);
 		//ofDrawCircle(untransform2D(mousePos), 4.0 / mapScale);
 		ofPopMatrix();
@@ -93,17 +97,17 @@ void ofApp::draw(){
 		ofEnableDepthTest();
 		ofScale(1, 1, -1);
 		for (int i = 0; i < planets.size(); i++) {
-			if (p.soi != planets[i])continue;
-			planets[i]->displayMode3(p.position, i);
+			if (p->soi != planets[i])continue;
+			planets[i]->displayMode3(p->position, i);
 		}
-		p.displayMode3();
+		p->displayMode3();
 		ofDrawAxis(256);
-		glm::dvec3 test = planets[0]->terrain.getSurfaceNormal(p.position);
-		double d = glm::length(p.position) - planets[0]->radius * (1 + planets[0]->terrain.get(p.position));
+		glm::dvec3 test = planets[0]->terrain.getSurfaceNormal(p->position);
+		double d = glm::length(p->position) - planets[0]->radius * (1 + planets[0]->terrain.get(p->position));
 		drawPlaneWithNormal(test, d*DM3_SCALE, 1000);
-		for (auto& pair : p.contacts) {
+		for (auto& pair : p->contacts) {
 			ofSetColor(255, 255, 255);
-			ofDrawSphere(DM3_SCALE * (p.angle * pair.first), 16);
+			ofDrawSphere(DM3_SCALE * (p->angle * pair.first), 16);
 		}
 		ofDisableDepthTest();
 		camera.end();
@@ -114,11 +118,11 @@ void ofApp::draw(){
 		ofSetColor(255, 255, 0);
 		ofDrawBitmapString(
 			to_string(ofGetFrameRate()) + "\n" +
-			printSituation(p.situ) + "\n" +
-			to_string(glm::length(p.position)) + "\n" +
-			to_string(glm::length(p.velocity)) + "\n" +
-			to_string(p.totalEnergy()-initialEnergy) + "\n" +
-			to_string(planets[0]->radius * (planets[0]->terrain.get(p.position) + 1))
+			printSituation(p->situ) + "\n" +
+			to_string(glm::length(p->position)) + "\n" +
+			to_string(glm::length(p->velocity)) + "\n" +
+			to_string(p->totalEnergy()-initialEnergy) + "\n" +
+			to_string(planets[0]->radius * (planets[0]->terrain.get(p->position) + 1))
 			, 100, 100);
 		ofPopStyle();
 		break;
@@ -131,7 +135,7 @@ void ofApp::keyPressed(int key){
 		if (key == 'r')selectedPart->rotateFrontFace();
 		if (key == 't')selectedPart->rotateTopFace();
 		if (key == 'y')selectedPart->rotateRightFace();
-		p.updateGrid();
+		p->updateGrid();
 	}
 }
 
