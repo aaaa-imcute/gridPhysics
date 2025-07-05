@@ -772,7 +772,7 @@ public:
 	void rotateRightFace();
 	void displayMode2();
 	unordered_map<string, pair<double, double>> fluids;
-	unordered_map<string, pair<double, double>> fluidChanges;
+	unordered_map<string, double> fluidChanges;
 	double tankTransferRate();
 	void update(PhysicsGrid* ship, glm::dvec3 pos, double t, double dt);
 	void integrate(double t, double dt);
@@ -930,12 +930,22 @@ double GridElement::tankTransferRate() {
 	return 0;
 }
 void GridElement::update(PhysicsGrid* ship, glm::dvec3 pos, double t, double dt) {
-	double rate = tankTransferRate() * dt;
+	double rate = tankTransferRate();
 	if (rate != 0) {
 		shared_ptr<GridElement> next = ship->getItem(pos + front());
 		if (next == nullptr) return;
 		for (auto& pair : fluids) {
-
+			auto target = next->fluids.find(pair.first);
+			if (target == next->fluids.end())continue;
+			double delta = min(rate * dt, pair.second.first);
+			delta = min(delta, target->second.second - target->second.first);
+			delta = max(0.0, delta);//just in case
+			next->fluidChanges[pair.first] += delta;
+			fluidChanges[pair.first] -= delta;
+			//TODO:fix obvious problem of multiple fuel tanks pointing to a single one
+			//being able to push too much fuel into said tank
+			//(not a major issue:problem is self limiting as the tank cannot get fuller
+			//after it is more than full on the next tick)
 		}
 	}
 }
@@ -943,7 +953,7 @@ void GridElement::integrate(double t, double dt) {
 	//actually does changes
 	//this is to ensure that the order of processing does not matter
 	for (auto& pair : fluids) {
-		pair.second.first += fluidChanges[pair.first].first;
+		pair.second.first += fluidChanges[pair.first];
 	}
 	fluidChanges.clear();
 }
