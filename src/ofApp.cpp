@@ -1,6 +1,6 @@
 #include "ofApp.h"
-GridElement root("test", 1, 0.7, 0.15);
-GridElement t("test2", 1, 0.7, 0.15);
+GridElement root("fire-tank", 1, 0.7, 0.15);
+//GridElement t("test2", 1, 0.7, 0.15);
 PhysicsGrid p(make_shared<GridElement>(root), { 574134.9,0,0 }, { 0,0,10.0 }, planets[0], 0);
 double initialEnergy;
 //orbital speed at 680000=2278.9316
@@ -26,8 +26,8 @@ void ofApp::setup(){
 		};
 	createPlanetAtlas();
 	planets[0]->terrain.generate(436, 0.1, 2);
-	t.rotateRightFace();
-	p.setItem(make_shared<GridElement>(t), 0, 1, 0);
+	//t.rotateRightFace();
+	//p.setItem(make_shared<GridElement>(t), 0, 1, 0);
 	initialEnergy = p.totalEnergy();
 }
 constexpr double PHYSICS_DT = 1.0/600;

@@ -801,10 +801,15 @@ public:
 		drawImage(".\\textures\\parts\\" + type + "_" + faceNames[f[2]] + ".png", 0, 0);
 		ofPopMatrix();
 	}
-	glm::dvec3 getThrust(double dt) {
-		//returns impulse from center of this part in dt
-		//only call once per time interval(because it removes fuel among other things)
-		return { 0,0,0 };
+	unordered_map<string, pair<double, double>> fluids;
+	glm::dvec3 update(double t, double dt) {
+		
+	}
+	glm::dvec3 integrate(double t, double dt) {
+		//copies values
+		//this is to ensure that the order of processing does not matter
+
+		
 	}
 };
 shared_ptr<GridElement> selectedPart;//sceneDisplayed==2
