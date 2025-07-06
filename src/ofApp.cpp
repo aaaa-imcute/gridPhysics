@@ -1,5 +1,4 @@
 #include "ofApp.h"
-GridElement root("fire-tank", 1, 0.7, 0.15);
 //GridElement t("test2", 1, 0.7, 0.15);
 shared_ptr<PhysicsGrid> p;
 double initialEnergy;
@@ -28,10 +27,27 @@ void ofApp::setup(){
 	createPlanetAtlas();//for some reason this doesnt work in the display methods of the planet class
 	//it only works here
 	//TODO:find out why
-	PhysicsGrid p1(make_shared<GridElement>(root), { 574134.9,0,0 }, { 0,0,10.0 }, planets[0], 0);
+	GridElement t1("fire-tank", 1, 0.7, 0.15);
+	GridElement t2("fire-tank", 1, 0.7, 0.15);
+	GridElement t3("fire-tank", 1, 0.7, 0.15);
+	PhysicsGrid p1(make_shared<GridElement>(t1), { 574134.9,0,0 }, { 0,0,10.0 }, planets[0], 0);
 	p = make_shared<PhysicsGrid>(p1);
-	//t.rotateRightFace();
-	//p.setItem(make_shared<GridElement>(t), 0, 1, 0);
+	p->setItem(make_shared<GridElement>(t2), 0, 1, 0);
+	p->setItem(make_shared<GridElement>(t3), 0, -1, 0);
+	p->getItem(0, -1, 0)->rotateFrontFace();
+	p->getItem(0, -1, 0)->rotateFrontFace();
+	p->getItem(0, -1, 0)->rotateFrontFace();
+	p->getItem(0, -1, 0)->rotateFrontFace();
+	p->getItem(0, 0, 0)->rotateFrontFace();
+	p->getItem(0, 0, 0)->rotateFrontFace();
+	p->getItem(0, 0, 0)->rotateFrontFace();
+	p->getItem(0, 0, 0)->rotateFrontFace();
+	p->getItem(0, 1, 0)->rotateFrontFace();
+	p->getItem(0, 1, 0)->rotateFrontFace();
+	p->getItem(0, 1, 0)->rotateFrontFace();
+	p->getItem(0, 1, 0)->rotateFrontFace();
+	p->getItem(0, 1, 0)->rotateFrontFace();
+	p->updateGrid();
 	initialEnergy = p->totalEnergy();
 }
 constexpr double PHYSICS_DT = 1.0/600;
@@ -43,6 +59,7 @@ void ofApp::update(){
 		remainingSimulation += ofGetLastFrameTime();
 		for (; remainingSimulation > PHYSICS_DT; remainingSimulation -= PHYSICS_DT) {
 			p->updatePhysics(totalTime,PHYSICS_DT);
+			p->updateInternal(totalTime, PHYSICS_DT);
 			totalTime += PHYSICS_DT;
 		}
 	}
@@ -51,6 +68,7 @@ void ofApp::update(){
 	}
 	
 }
+int dm2_layer = 0;
 void ofApp::draw(){
 	pmousePos=mousePos;
 	mousePos=glm::vec2(ofGetMouseX(), ofGetMouseY());
@@ -84,7 +102,7 @@ void ofApp::draw(){
 		ofScale(mapScale);
 		ofTranslate(mapPos);
 		if (mouse[2])selectedPart = nullptr;
-		p->displayMode2(0);
+		p->displayMode2(dm2_layer);
 		//ofSetColor(255, 255, 255);
 		//ofDrawCircle(untransform2D(mousePos), 4.0 / mapScale);
 		ofPopMatrix();
@@ -131,11 +149,21 @@ void ofApp::draw(){
 
 void ofApp::keyPressed(int key){
 	keys[key] = true;
-	if (sceneDisplayed == 2 && selectedPart != nullptr) {
-		if (key == 'r')selectedPart->rotateFrontFace();
-		if (key == 't')selectedPart->rotateTopFace();
-		if (key == 'y')selectedPart->rotateRightFace();
-		p->updateGrid();
+	if (sceneDisplayed == 2) {
+		if (selectedPart != nullptr) {
+			if (key == 'r')selectedPart->rotateFrontFace();
+			if (key == 't')selectedPart->rotateTopFace();
+			if (key == 'y')selectedPart->rotateRightFace();
+			p->updateGrid();
+		}
+		if (key == 'w') {
+			dm2_layer++;
+			selectedPart = nullptr;
+		}
+		if (key == 's') {
+			dm2_layer--;
+			selectedPart = nullptr;
+		}
 	}
 }
 

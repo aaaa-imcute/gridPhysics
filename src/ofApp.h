@@ -827,6 +827,9 @@ GridElement::GridElement(string t, double m, double r, double f) {
 	frontFace = 4;
 	topFace = 2;
 	rightFace = 0;
+	if (type == "fire-tank") {
+		fluids = { {"fire",{1,2}} };
+	}
 };
 glm::dvec3 GridElement::faceNormal(int face) {//returns ship coordinates
 	switch (face) {
@@ -926,7 +929,7 @@ void GridElement::displayMode2() {
 	ofPopMatrix();
 }
 double GridElement::tankTransferRate() {
-	if (type == "fire-tank")return 1;
+	if (type == "fire-tank")return 0.1;
 	return 0;
 }
 void GridElement::update(PhysicsGrid* ship, glm::dvec3 pos, double t, double dt) {
@@ -1496,6 +1499,7 @@ void PhysicsGrid::updateInternal(double t, double dt) {
 		if (ptr.second == nullptr)continue;
 		ptr.second->integrate(t, dt);
 	}
+	updateGrid();
 }
 int sceneDisplayed = 2;//0=instruments,1=map,2=craft part details,3=camera
 void dragMap() {
