@@ -828,7 +828,14 @@ GridElement::GridElement(string t, double m, double r, double f) {
 	topFace = 2;
 	rightFace = 0;
 	if (type == "fire-tank") {
-		fluids = { {"fire",{1,2}} };
+		fluids = { {"fire",{1000,1000}} };
+	}
+	else if (type == "metal-tank") {
+		fluids = { {"metal",{1000,1000}} };
+	}
+	else if (type == "solid-rocket-engine") {
+		//TODO:thrust
+		fluids = { {"metal",{1000,1000}} };
 	}
 };
 glm::dvec3 GridElement::faceNormal(int face) {//returns ship coordinates
@@ -929,14 +936,17 @@ void GridElement::displayMode2() {
 	ofPopMatrix();
 }
 double GridElement::tankTransferRate() {
-	if (type == "fire-tank")return 0.1;
+	if (type == "fire-tank")return 100;
+	if (type == "metal-tank")return 100;
 	return 0;
 }
 void GridElement::update(PhysicsGrid* ship, glm::dvec3 pos, double t, double dt) {
 	double rate = tankTransferRate();
 	if (rate != 0) {
 		shared_ptr<GridElement> next = ship->getItem(pos + front());
-		if (next == nullptr) return;
+		if (next == nullptr || type == "metal-tank" &&
+			(front() != next->front() || next->type != "metal-tank" && next->type != "solid-rocket-engine")) return;
+		//TODO:test solid fuel transfer stuff
 		for (auto& pair : fluids) {
 			auto target = next->fluids.find(pair.first);
 			if (target == next->fluids.end())continue;
