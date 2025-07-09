@@ -774,6 +774,7 @@ public:
 	unordered_map<string, pair<double, double>> fluids;
 	unordered_map<string, double> fluidChanges;
 	double tankTransferRate();
+	pair<double, double> engineData();
 	void update(PhysicsGrid* ship, glm::dvec3 pos, double t, double dt);
 	void integrate(double t, double dt);
 };
@@ -940,6 +941,13 @@ double GridElement::tankTransferRate() {
 	if (type == "metal-tank")return 100;
 	return 0;
 }
+pair<double, double> GridElement::engineData() {
+	//pair<Isp,maximum flow rate>
+	//TODO:support for bipropellant engines(rich/lean mix,etc)
+	//TODO:atmosphere and whatnot,obviously that changes the isp
+	if (type == "solid-rocket-engine")return { 165,15.82 };//again copied from ksp for testing
+	return { 0,0 };
+}
 void GridElement::update(PhysicsGrid* ship, glm::dvec3 pos, double t, double dt) {
 	double rate = tankTransferRate();
 	if (rate != 0) {
@@ -960,6 +968,20 @@ void GridElement::update(PhysicsGrid* ship, glm::dvec3 pos, double t, double dt)
 			//(not a major issue:problem is self limiting as the tank cannot get fuller
 			//after it is more than full on the next tick)
 		}
+		return;
+	}
+	auto [isp, flux] = engineData();
+	if (flux != 0) {
+		shared_ptr<GridElement> next = ship->getItem(pos + front());
+		if (next != nullptr) return;//oops,obstructed
+		//TODO:better obstruction check
+		//(check for all blocks in a cone?and the angle is related to how much the atmosphere harms the isp?)
+		//TODO:support for other kinds of propellants and bipropellant
+		pair<string, pair<double, double>> pair = *fluids.find("metal");
+		double fuel = pair.second.first;
+		double delta = min(fuel, flux * dt);
+		glm::dvec3 thrust = front() * (delta * isp);//TODO:do smth with this
+		fluidChanges[pair.first] -= delta;
 	}
 }
 void GridElement::integrate(double t, double dt) {
