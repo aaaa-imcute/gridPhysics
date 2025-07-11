@@ -27,9 +27,9 @@ void ofApp::setup(){
 	createPlanetAtlas();//for some reason this doesnt work in the display methods of the planet class
 	//it only works here
 	//TODO:find out why
-	GridElement t1("fire-tank", 1, 0.7, 0.15);
-	GridElement t2("fire-tank", 1, 0.7, 0.15);
-	GridElement t3("fire-tank", 1, 0.7, 0.15);
+	GridElement t1("metal-tank", 1, 0.7, 0.15);
+	GridElement t2("metal-tank", 1, 0.7, 0.15);
+	GridElement t3("solid-rocket-engine", 1, 0.7, 0.15);
 	PhysicsGrid p1(make_shared<GridElement>(t1), { 574134.9,0,0 }, { 0,0,10.0 }, planets[0], 0);
 	p = make_shared<PhysicsGrid>(p1);
 	p->setItem(make_shared<GridElement>(t2), 0, 1, 0);
@@ -38,6 +38,8 @@ void ofApp::setup(){
 	p->getItem(0, -1, 0)->rotateFrontFace();
 	p->getItem(0, -1, 0)->rotateFrontFace();
 	p->getItem(0, -1, 0)->rotateFrontFace();
+	p->getItem(0, -1, 0)->rotateFrontFace();
+	p->getItem(0, 0, 0)->rotateFrontFace();
 	p->getItem(0, 0, 0)->rotateFrontFace();
 	p->getItem(0, 0, 0)->rotateFrontFace();
 	p->getItem(0, 0, 0)->rotateFrontFace();
@@ -102,6 +104,7 @@ void ofApp::draw(){
 		ofScale(mapScale);
 		ofTranslate(mapPos);
 		if (mouse[2])selectedPart = nullptr;
+		//atlas.draw(0, 0);
 		p->displayMode2(dm2_layer);
 		//ofSetColor(255, 255, 255);
 		//ofDrawCircle(untransform2D(mousePos), 4.0 / mapScale);

@@ -8,7 +8,7 @@ double ffmod(double x, double y) {
 unordered_map<int, bool> keys;
 unordered_map<int, bool> mouse;
 glm::dvec2 untransform2D(glm::dvec2 vec) {
-	glm::dvec2 temp = vec-glm::dvec2(ofGetWidth() / 2, ofGetHeight() / 2);
+	glm::dvec2 temp = vec - glm::dvec2(ofGetWidth() / 2, ofGetHeight() / 2);
 	glm::dmat4 modelView = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
 	glm::dmat4 inverse = glm::inverse(modelView);
 	return glm::dvec4(temp.x, temp.y, 0, 1) * inverse;
@@ -25,12 +25,12 @@ public:
 	void update() {
 		if (!mouse[2])return;
 		glm::dvec2 rel = mousePos - pmousePos;
-		angle.x += -rel.y*PI/ofGetHeight();
-		angle.y += -rel.x*PI*2/ofGetWidth();
+		angle.x += -rel.y * PI / ofGetHeight();
+		angle.y += -rel.x * PI * 2 / ofGetWidth();
 		angle.x = ofClamp(angle.x, -PI / 2, PI / 2);
 		updateOrientation();
 	}
-	void mouseScrolled(double sx,double sy) {
+	void mouseScrolled(double sx, double sy) {
 		angle.z += -sy * 50;
 		updateOrientation();
 	}
@@ -58,7 +58,7 @@ namespace std {
 	};
 }//make it so that this can be the key of a unordered map(used in class PhysicsGrid)
 glm::dvec3 orbitPos;//sceneDisplayed==1
-double orbitScale=1.0/600;
+double orbitScale = 1.0 / 600;
 vector<string> faceNames = { "right","left","top","bottom","front","back" };
 unordered_map<string, ofImage> imageCache;
 ofImage loadImage(string img) {
@@ -76,7 +76,7 @@ ofImage loadImage(string img) {
 }
 void drawImage(string img, float x, float y) {
 	ofImage temp = loadImage(img);
-	ofSetColor(255,255,255);
+	ofSetColor(255, 255, 255);
 	temp.draw(x, y);
 }
 ofFbo atlas;
@@ -85,22 +85,24 @@ bool atlasReady = false;
 ofFbo planetAtlas;//map of planet colors per altitude
 bool planetAtlasReady = false;
 constexpr double DM3_SCALE = 256;
-constexpr int ATLAS_SIZE = 256;
+constexpr int ATLAS_SIZE = 4096;//needs to be divisible by 16
+//dk why it was 256 before,mb i thought of it as the number of textures on a row of the atlas
+//instead of how it was actually used,the number of pixels.
 void walkTextures(string path, int& x, int& y) {
 	ofDirectory dir(path);
 	if (!dir.isDirectory()) {
-		string n = dir.getOriginalDirectory();
-		ofImage temp = loadImage(n.substr(0,n.size()-1));
+		ofImage temp = loadImage(path);//fixed dumb getOriginalDirectory call and string manipulation
 		atlas.begin();
 		temp.draw(x, y);
 		atlas.end();
-		//length of .\\textures\\ is 11 and length of .png is 4,also account for extra \\ at end
-		atlasMap[n.substr(11, n.size() - 16)] = { (float)x, (float)y };
+		filesystem::path relPath = filesystem::relative(path, "textures");
+		relPath.replace_extension();
+		atlasMap[relPath.string()] = { (float)x, (float)y };
 		x += 16;
-		if (x == 4096) {
+		if (x == ATLAS_SIZE) {
 			x = 0;
 			y += 16;
-			if (y == 4096)throw "Too many textures";
+			if (y == ATLAS_SIZE)throw "Too many textures";
 		}
 		return;
 	}
@@ -113,6 +115,8 @@ void createAtlas() {
 	if (atlasReady)return;
 	atlasReady = true;
 	int SIZE = ATLAS_SIZE;//so max.4096 textures
+	//why?why 4096?it should be (4096/16)^2=65536
+	//mb that day i was just dumb lol
 	atlas.allocate(SIZE, SIZE);
 	atlas.begin();
 	ofClear(0);
@@ -125,24 +129,24 @@ void drawLine(glm::dvec2 p1, glm::dvec2 p2, float width) {//replacement method f
 	ofPushMatrix();
 	ofTranslate(p1);
 	ofRotateRad(atan2f(p2.y - p1.y, p2.x - p1.x));
-	ofDrawRectangle(- glm::dvec2(0, width), glm::length(p1-p2), width * 2);
+	ofDrawRectangle(-glm::dvec2(0, width), glm::length(p1 - p2), width * 2);
 	ofPopMatrix();
 }
 void drawFaceNormal2D(glm::dvec3 v, glm::dvec2 pos) {//sceneDisplay==2
 	//expects color already set
 	glm::dvec2 d(-v.z, -v.x);
 	if (abs(v.y) < 0.01) {
-		drawLine(pos, pos + d * 16,1);
+		drawLine(pos, pos + d * 16, 1);
 	}
 	else if (v.y > 0) {
 		ofDrawCircle(pos, 2);
 	}
 	else if (v.y < 0) {
-		drawLine(pos + glm::dvec2(-4, -4), pos + glm::dvec2(4, 4),1);
-		drawLine(pos + glm::dvec2(-4, 4), pos + glm::dvec2(4, -4),1);
+		drawLine(pos + glm::dvec2(-4, -4), pos + glm::dvec2(4, 4), 1);
+		drawLine(pos + glm::dvec2(-4, 4), pos + glm::dvec2(4, -4), 1);
 	}
 }
-void getTriangleMesh(ofMesh& m,glm::dvec3 a, glm::dvec3 b, glm::dvec3 c) {
+void getTriangleMesh(ofMesh& m, glm::dvec3 a, glm::dvec3 b, glm::dvec3 c) {
 	double scale = DM3_SCALE;
 	size_t baseIndex = m.getNumVertices();//compiler unhappy about "size_t to int is downgrading conversion" or smth
 	glm::dvec3 normal = glm::cross(c - b, a - b);
@@ -189,7 +193,7 @@ void drawPlaneWithNormal(glm::dvec3 normal, float distance, float size) {
 	ofPopMatrix();
 	// Draw normal vector from center
 	ofSetColor(255, 0, 0);
-	ofDrawLine(center, center+unitNormal * (size / 2));
+	ofDrawLine(center, center + unitNormal * (size / 2));
 }
 void make_orthonormal_basis(const glm::dvec3& N, glm::dvec3& T, glm::dvec3& B) {
 	if (fabs(N.x) > fabs(N.z)) {
@@ -205,7 +209,7 @@ public:
 	double coeff[(MAX_SH_LEVEL + 1) * (MAX_SH_LEVEL + 1)] = {};
 	bool generated = false;
 	double maxHeight = 0, lipschitz = 0;
-	void generate(unsigned int seed,double A,double a) {
+	void generate(unsigned int seed, double A, double a) {
 		//if a planet isn't generated,it will render as a sphere(gas giant),so don't if it actually is!
 		//seed fineness amplitude(ratio of mountains to planet radius) smoothness(more than 2)
 		mt19937 rng(seed);
@@ -217,7 +221,7 @@ public:
 			normal_distribution<double> d(0, var);
 			for (int m = -l; m <= l; m++) {
 				double height = d(rng);
-				coeff[index++]=height;
+				coeff[index++] = height;
 				maxHeight += height * height;
 				lipschitz += l * l * height * height;
 			}
@@ -236,7 +240,7 @@ public:
 		glm::dvec2 c = sphericalCoordinates(v);
 		return get(c.y, c.x, level);
 	}
-	void mesh(ofMesh& m, glm::dvec3 ref,int planetI,bool centered=false) {
+	void mesh(ofMesh& m, glm::dvec3 ref, int planetI, bool centered = false) {
 		//ref is relative to the planet,scaled down by the radius
 		//(so is the resulting mesh)
 		//TODO:centered makes the mesh centered around the camera
@@ -244,7 +248,7 @@ public:
 		int points = 64;
 		double r = glm::length(ref);
 		glm::dvec3 norm = ref / r;
-		if (!generated||r>16) {
+		if (!generated || r > 16) {
 			ofSpherePrimitive sphere;
 			sphere.setRadius(256);
 			sphere.setResolution(points);
@@ -254,7 +258,7 @@ public:
 			m = sphere.getMesh();
 			return;
 		}
-		double limit = PI/2+1e-5;//so apparently some calculations might be off by one if
+		double limit = PI / 2 + 1e-5;//so apparently some calculations might be off by one if
 		//limit is divisible by detail
 		double detail = PI / 256;//now it is relative to the camera not the planet
 		int length = ceil(limit / detail) + 1;
@@ -263,7 +267,7 @@ public:
 		int i = 0, k = 0;
 		glm::dvec3 T, B;
 		make_orthonormal_basis(-norm, T, B);
-		for(double ph=0;;ph+=detail){
+		for (double ph = 0;; ph += detail) {
 			if (ph > limit)ph = limit;
 			//yep the angle convention thing is backwards here wrt the
 			//SH math,oops!(th came first and represented angles on a 2d system hence the name)
@@ -272,7 +276,7 @@ public:
 			double radius = h * sin(ph);
 			double end = ((i++) & 1) * PI / points;
 			double th = end;
-			for (int j = 0; j < points;j++) {
+			for (int j = 0; j < points; j++) {
 				glm::dvec3 V = norm * (r - dist);
 				V += (cos(th) * T + sin(th) * B) * radius;
 				V /= ter;
@@ -299,9 +303,9 @@ public:
 				c = (i + 1) * points + ffmod(j + i % 2, points);
 				//if the current layer is even then +1 otherwise don't +1
 				//this is for the layer shifting thing
-				if(i!=0)getTriangleMesh(
+				if (i != 0)getTriangleMesh(
 					m,
-					vertices[a], vertices[b], vertices[c], 
+					vertices[a], vertices[b], vertices[c],
 					{ texCoords[a], planetI },
 					{ texCoords[b], planetI },
 					{ texCoords[c], planetI }
@@ -386,7 +390,7 @@ public:
 	//and v is how much time have passed since periapsis at t=0
 	//(so that the equation for mean anomaly still makes sense)
 	shared_ptr<Planet> p;
-	OrbitalElements(shared_ptr<Planet> p1,glm::dvec3 r,glm::dvec3 V,double t) {
+	OrbitalElements(shared_ptr<Planet> p1, glm::dvec3 r, glm::dvec3 V, double t) {
 		p = p1;
 		set(r, V, t);
 	}
@@ -396,14 +400,16 @@ public:
 		double i1, double o1, double w1,
 		double v1
 	)
-		:p(p1), a(a1), e(e1), i(i1), o(o1), w(w1), v(v1), periapsis(a*(1-e)) {};
+		:p(p1), a(a1), e(e1), i(i1), o(o1), w(w1), v(v1), periapsis(a* (1 - e)) {
+	};
 	OrbitalElements(
 		shared_ptr<Planet> p1,
 		double periapsis1, double e1,
 		double i1, double o1, double w1,
 		double v1, bool parabolic
 	)
-		:p(p1), a(numeric_limits<double>::infinity()), e(e1), i(i1), o(o1), w(w1), v(v1), periapsis(periapsis1) {};
+		:p(p1), a(numeric_limits<double>::infinity()), e(e1), i(i1), o(o1), w(w1), v(v1), periapsis(periapsis1) {
+	};
 	double period() {
 		//yep this and meanMotion multiply to make 2PI
 		//apart from the sign part which I basically invented to make hyperbolic
@@ -543,7 +549,7 @@ public:
 		}
 		/*
 		double n = atan2(
-			glm::dot(r, glm::cross(h, E)) / (glm::length(h) * e * glm::length(r)), 
+			glm::dot(r, glm::cross(h, E)) / (glm::length(h) * e * glm::length(r)),
 			glm::dot(E, r) / (glm::length(h) * glm::length(r))
 		);
 		n = ffmod(n, 2 * PI);
@@ -554,7 +560,7 @@ public:
 			double E = atan2(sqrt(1 - e * e) * sin(n), e + cos(n));
 			M = E - e * sin(E);
 		}
-		else if(e > 1){
+		else if (e > 1) {
 			double F = 2 * atanh(tan(n / 2) * sqrt((e - 1) / (e + 1)));
 			M = e * sinh(F) - F;
 		}
@@ -565,7 +571,7 @@ public:
 			M = sqrt(2 * periapsis * periapsis * periapsis / p->gravity) * (D + D * D * D / 3);
 		}
 		v = M - meanMotion() * t;
-		if(e<1)v = ffmod(v, 2 * PI);
+		if (e < 1)v = ffmod(v, 2 * PI);
 	}
 	void displayMode1(double t) {
 		double div = 2 * PI / 256;
@@ -576,7 +582,7 @@ public:
 		for (double i = -th; i <= th; i += div) {
 			ofVertex(glm::vec3((tpos(i) + p->apos(t) - orbitPos) * orbitScale));
 		}
-		ofEndShape(e<1);
+		ofEndShape(e < 1);
 	}
 };
 vector<shared_ptr<Planet>> planets = {
@@ -629,25 +635,25 @@ double Planet::SOI() {
 	if (o == nullptr)return std::numeric_limits<double>::infinity();
 	return o->a * pow(gravity / o->p->gravity, 0.4);
 };
-void Planet::displayMode1(double t,int planetI) {
+void Planet::displayMode1(double t, int planetI) {
 	glm::dvec3 p = (apos(t) - orbitPos) * orbitScale;
 	ofPushMatrix();
 	ofTranslate(glm::vec3(p));
 	ofFill();
 	//ofDrawSphere(radius * orbitScale);
-	glm::dvec3 ref = (glm::dvec3)camera.getGlobalPosition()-p;
+	glm::dvec3 ref = (glm::dvec3)camera.getGlobalPosition() - p;
 	double r = glm::length(ref);
 	double ter = 1 + terrain.get(ref);
-	if (r <= radius * orbitScale*ter) {
-		orbitScale = r / (radius*ter);
+	if (r <= radius * orbitScale * ter) {
+		orbitScale = r / (radius * ter);
 	}
-	ref /= radius*orbitScale;
+	ref /= radius * orbitScale;
 	//ref = { 0,1.5,0 };
-	ofSetColor(255,255,255);
+	ofSetColor(255, 255, 255);
 	mesh.clear();//probably superfluous
-	terrain.mesh(mesh,ref,planetI);
+	terrain.mesh(mesh, ref, planetI);
 	of3dPrimitive brush = { mesh };
-	brush.setScale(radius*orbitScale/DM3_SCALE);
+	brush.setScale(radius * orbitScale / DM3_SCALE);
 	createPlanetAtlas();
 	ofTexture tex = planetAtlas.getTexture();
 	tex.bind();
@@ -662,7 +668,7 @@ void Planet::displayMode1(double t,int planetI) {
 	*/
 	ofTranslate(-glm::vec3(p));//superfluous but i'll keep it here because why not
 	ofPopMatrix();
-	if(o!=nullptr)o->displayMode1(t);
+	if (o != nullptr)o->displayMode1(t);
 }
 void Planet::displayMode3(glm::dvec3 shipPos, int planetI) {
 	ofPushMatrix();//superfluous but i'll keep it here because why not
@@ -676,9 +682,9 @@ void Planet::displayMode3(glm::dvec3 shipPos, int planetI) {
 	}
 	ref /= radius;
 	//ref = { 0,1.001,0 };
-	ofSetColor(255,255,255);//TODO
+	ofSetColor(255, 255, 255);//TODO
 	mesh.clear();//probably superfluous
-	terrain.mesh(mesh,ref, planetI, true);
+	terrain.mesh(mesh, ref, planetI, true);
 	of3dPrimitive brush = { mesh };
 	brush.setScale(radius);
 	createPlanetAtlas();
@@ -946,6 +952,8 @@ pair<double, double> GridElement::engineData() {
 	//TODO:support for bipropellant engines(rich/lean mix,etc)
 	//TODO:atmosphere and whatnot,obviously that changes the isp
 	if (type == "solid-rocket-engine")return { 165,15.82 };//again copied from ksp for testing
+	//TODO:Fix silly issue in side textures(as opposed to front/back) where the nozzle points 
+	//down on the texture(which is back on the real thing).That's not where the nozzle is...
 	return { 0,0 };
 }
 void GridElement::update(PhysicsGrid* ship, glm::dvec3 pos, double t, double dt) {
@@ -1537,26 +1545,26 @@ int sceneDisplayed = 2;//0=instruments,1=map,2=craft part details,3=camera
 void dragMap() {
 	if (sceneDisplayed != 0 && sceneDisplayed != 2)return;
 	if (!mouse[0])return;
-	mapPos += (mousePos - pmousePos)/mapScale;
+	mapPos += (mousePos - pmousePos) / mapScale;
 }
-class ofApp : public ofBaseApp{
+class ofApp : public ofBaseApp {
 
-	public:
-		void setup();
-		void update();
-		void draw();
+public:
+	void setup();
+	void update();
+	void draw();
 
-		void keyPressed(int key);
-		void keyReleased(int key);
-		void mouseMoved(int x, int y );
-		void mouseDragged(int x, int y, int button);
-		void mousePressed(int x, int y, int button);
-		void mouseReleased(int x, int y, int button);
-		void mouseEntered(int x, int y);
-		void mouseExited(int x, int y);
-		void mouseScrolled(int x, int y, float sx, float sy);
-		void windowResized(int w, int h);
-		void dragEvent(ofDragInfo dragInfo);
-		void gotMessage(ofMessage msg);
-		
+	void keyPressed(int key);
+	void keyReleased(int key);
+	void mouseMoved(int x, int y);
+	void mouseDragged(int x, int y, int button);
+	void mousePressed(int x, int y, int button);
+	void mouseReleased(int x, int y, int button);
+	void mouseEntered(int x, int y);
+	void mouseExited(int x, int y);
+	void mouseScrolled(int x, int y, float sx, float sy);
+	void windowResized(int w, int h);
+	void dragEvent(ofDragInfo dragInfo);
+	void gotMessage(ofMessage msg);
+
 };
