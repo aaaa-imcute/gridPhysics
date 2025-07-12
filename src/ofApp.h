@@ -949,9 +949,20 @@ double GridElement::tankTransferRate() {
 }
 pair<double, double> GridElement::engineData() {
 	//pair<Isp,maximum flow rate>
+	//remember here Isp is in units of velocity not time,and it is equal to the ejection velocity
+	
+	//v^2=2k*(RTc/M)*(1-pe/pc)^(1/k)
+	//where R is the ideal gas coefficient,Tc is the chamber temperature,
+	//M is the average molecular weight of the exhaust,pe is the exhaust pressure(adjust based on nozzle type?)
+	//pc is the chamber pressure,and k=y/(y-1) where y is the adiabatic ratio.
+	//the adiabatic ratio is calculated by y=(f+2)/f where f is the molar average degrees of freedom
+	//e.g 1 mol of nitrogen:2 mol of helium->(5*1+3*2)/(1+2)=11/3->y=17/11->k=17/6
+	//a good guess is that every atom gets 3 DOF but every bond giving a new restriction takes away 1.
+	//(protip:k=1+f/2)
+
 	//TODO:support for bipropellant engines(rich/lean mix,etc)
 	//TODO:atmosphere and whatnot,obviously that changes the isp
-	if (type == "solid-rocket-engine")return { 165,15.82 };//again copied from ksp for testing
+	if (type == "solid-rocket-engine")return { 1618.65,15.82 };//again copied from ksp for testing
 	//TODO:Fix silly issue in side textures(as opposed to front/back) where the nozzle points 
 	//down on the texture(which is back on the real thing).That's not where the nozzle is...
 	return { 0,0 };
