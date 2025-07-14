@@ -804,7 +804,7 @@ double calculateEjectionVelocityInner(double f,double H,double m,double r,double
 	double T = H / (IDEAL_GAS_COEFF * fc * m);
 	double P0 = r / (An * sqrt(y / (IDEAL_GAS_COEFF * T)) * pow(fa, fb));
 	double Me = solveForMachNumber2(Ae / An, f);
-	double Pe = P0 * pow(1 + Me * Me * fd, -fc);
+	double Pe = P0 * pow(1 + Me * fd, -fc);
 	return sqrt(2 * fc * IDEAL_GAS_COEFF * T * (1 - pow(Pa / P0, 1 / fc))) + (Pe - Pa) / (Ae * r);
 }
 double calculateEjectionVelocity(MonoPropSpec spec, double Pa, double r) {
