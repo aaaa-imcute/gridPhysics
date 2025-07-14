@@ -2,6 +2,8 @@
 
 #include "ofMain.h"
 #include "SH.cpp"
+#include <variant>
+#include <optional>
 double ffmod(double x, double y) {
 	return fmod(fmod(x, y) + y, y);
 }
@@ -761,6 +763,62 @@ glm::dvec3 corners_of_unit_cube[8] = {
 	{0.5,0.5,-0.5},
 	{0.5,0.5,0.5}
 };
+struct MonoPropSpec {
+	int m;//mol of exhaust in reaction formula
+	double H;//J/mol of enthalpy in reaction formula
+	int f;//DOF of exhaust,if there are multiple types of exhaust give molar average
+	double Ae;//area of end of nozzle
+	double An;//area of choke point of nozzle
+	double maxR;//maximum injection rate
+	string R;
+};
+struct BiPropSpec {
+	int a;
+	int b;
+	int c;
+	double H;//aA+bB->cC+H
+	double Ma;//molar masses
+	double Mb;
+	int Fa;//DOFs
+	int Fb;
+	int Fc;
+	double Ae;
+	double An;
+	double maxX;//maximum injection rates
+	double maxY;
+	string A;
+	string B;
+};
+constexpr double IDEAL_GAS_COEFF = 8.314;
+double solveForMachNumber2(double r2, double f) {
+	//(after manipulating the equation so it doesn't include x,only x^2,and moving a factor to the left side:)
+	//r2x^2/(f/(f+1))^(f+1)=(1+x^2/f)^(f+1)
+	//this equation has atmost two roots,take the one where x^2 is larger.
+	//that solution represents the case where flow is choked and supersonic.
+	//also return x^2,nobody needs x itsself
+	return 1;
+}
+double calculateEjectionVelocityInner(double f,double H,double m,double r,double An,double Ae,double Pa) {
+	//calculates effective ejection velocity
+	double y = 1 + 2 / f, fa = f / (f + 1), fb = (f + 1) / 2, fc = (f + 2) / 2, fd = 1 / f;
+	double T = H / (IDEAL_GAS_COEFF * fc * m);
+	double P0 = r / (An * sqrt(y / (IDEAL_GAS_COEFF * T)) * pow(fa, fb));
+	double Me = solveForMachNumber2(Ae / An, f);
+	double Pe = P0 * pow(1 + Me * Me * fd, -fc);
+	return sqrt(2 * fc * IDEAL_GAS_COEFF * T * (1 - pow(Pa / P0, 1 / fc))) + (Pe - Pa) / (Ae * r);
+}
+double calculateEjectionVelocity(MonoPropSpec spec, double Pa, double r) {
+	return calculateEjectionVelocityInner(spec.f, spec.H, spec.m, r, spec.An, spec.Ae, Pa);
+}
+double calculateEjectionVelocity(BiPropSpec spec, double Pa, double x,double y) {
+	double s = min(x / (spec.a * spec.Ma), y / (spec.b * spec.Mb));
+	double ra = x / spec.Ma - spec.a * s;
+	double rb = y / spec.Mb - spec.b * s;
+	double rc = spec.c * s;
+	double f = (ra * spec.Fa + rb * spec.Fb + rc * spec.Fc) / (ra + rb + rc);
+	double m = (ra + rb + rc)/s;
+	return calculateEjectionVelocityInner(f, spec.H, m, x + y, spec.An, spec.Ae, Pa);
+}
 class GridElement {
 public:
 	GridElement(string t, double m, double r, double f);
@@ -780,7 +838,7 @@ public:
 	unordered_map<string, pair<double, double>> fluids;
 	unordered_map<string, double> fluidChanges;
 	double tankTransferRate();
-	pair<double, double> engineData();
+	optional<variant<MonoPropSpec, BiPropSpec>> engineData();
 	void update(PhysicsGrid* ship, glm::dvec3 pos, double t, double dt);
 	void integrate(double t, double dt);
 };
@@ -947,25 +1005,50 @@ double GridElement::tankTransferRate() {
 	if (type == "metal-tank")return 100;
 	return 0;
 }
-pair<double, double> GridElement::engineData() {
-	//pair<Isp,maximum flow rate>
-	//remember here Isp is in units of velocity not time,and it is equal to the ejection velocity
-	
-	//v^2=2k*(RTc/M)*(1-pe/pc)^(1/k)
-	//where R is the ideal gas coefficient,Tc is the chamber temperature,
-	//M is the average molecular weight of the exhaust,pe is the exhaust pressure(adjust based on nozzle type?)
-	//pc is the chamber pressure,and k=y/(y-1) where y is the adiabatic ratio.
-	//the adiabatic ratio is calculated by y=(f+2)/f where f is the molar average degrees of freedom
-	//e.g 1 mol of nitrogen:2 mol of helium->(5*1+3*2)/(1+2)=11/3->y=17/11->k=17/6
-	//a good guess is that every atom gets 3 DOF but every bond giving a new restriction takes away 1.
-	//(protip:k=1+f/2)
+optional<variant<MonoPropSpec, BiPropSpec>> GridElement::engineData() {
+	//v=sqrt(2fcRT*(1-(pa/p0)^(1/fc)))+(Pe-Pa)/Ae/r
+	//p0=r/(An*sqrt(y/RT)*fa^fb)
+	//MeAe/An=(kfa)^fb
+	//k=1+fdMe^2
+	//Pe=P0*k^-fc
+	//y=1+2/f
+	//fa=f/(f+1)
+	//fb=(f+1)/2
+	//fc=(f+2)/2
+	//fd=1/f
+	//T=H/(Rfcm)
 
-	//TODO:support for bipropellant engines(rich/lean mix,etc)
-	//TODO:atmosphere and whatnot,obviously that changes the isp
-	if (type == "solid-rocket-engine")return { 1618.65,15.82 };//again copied from ksp for testing
-	//TODO:Fix silly issue in side textures(as opposed to front/back) where the nozzle points 
-	//down on the texture(which is back on the real thing).That's not where the nozzle is...
-	return { 0,0 };
+	//for monopropellant engines:
+	//m=mol of exhaust per reaction
+	//f=3*number of atoms in exhaust-number of bonds
+	//r=kg of fuel per second
+	//needs:m,H,f,Ae,An,maxR
+	//needs r and Pa from elsewhere
+
+	//for bipropellant engines:
+	//if one mol of reaction needs a mol of A and b mol of B
+	//producing c mol of exhaust,and actually
+	//x kg and y kg of reactant is supplied every second,
+	//then s=min(x/(aMa),y/(bMb)) sets of reagents have reacted,
+	//ra=x/Ma-a*s
+	//rb=y/Mb-b*s
+	//rc=c*s
+	//f=(ra*Fa+rb*Fb+rc*Fc)/(ra+rb+rc)
+	//m=(ra+rb+rc)/s
+	//r=x+y
+	//needs:a,b,c,H,Ma,Mb,Fa,Fb,Fc,Ae,An,maxX,maxY
+	//needs x,y,and Pa from somewhere else(how do we let the user control the fuel ratio?)
+
+
+	/*int m;//mol of exhaust in reaction formula
+	double H;//J/mol of enthalpy in reaction formula
+	int f;//DOF of exhaust,if there are multiple types of exhaust give molar average
+	double Ae;//area of end of nozzle
+	double An;//area of choke point of nozzle
+	double maxR;//maximum injection rate
+	string R;*/
+	if (type == "solid-rocket-engine")return { };//TODO:fill in
+	return nullopt;
 }
 void GridElement::update(PhysicsGrid* ship, glm::dvec3 pos, double t, double dt) {
 	double rate = tankTransferRate();
@@ -989,18 +1072,42 @@ void GridElement::update(PhysicsGrid* ship, glm::dvec3 pos, double t, double dt)
 		}
 		return;
 	}
-	auto [isp, flux] = engineData();
-	if (flux != 0) {
+	auto data = engineData();
+	if (data) {
 		shared_ptr<GridElement> next = ship->getItem(pos + front());
 		if (next != nullptr) return;//oops,obstructed
 		//TODO:better obstruction check
 		//(check for all blocks in a cone?and the angle is related to how much the atmosphere harms the isp?)
-		//TODO:support for other kinds of propellants and bipropellant
-		pair<string, pair<double, double>> pair = *fluids.find("metal");
-		double fuel = pair.second.first;
-		double delta = min(fuel, flux * dt);
-		glm::dvec3 thrust = front() * (delta * isp);//TODO:do smth with this
-		fluidChanges[pair.first] -= delta;
+		double Pa;//TODO
+		glm::dvec3 thrust;
+		std::visit(
+			[&](const auto& spec) {
+				using T = std::decay_t<decltype(spec)>;
+				//TODO:differ injection rate from maximum injection rate
+				if constexpr (std::is_same_v<T, MonoPropSpec>) {
+					double r = spec.maxR;
+					pair<double, double> pair = fluids[spec.R];
+					double fuel = pair.first;
+					double delta = min(fuel, r * dt);
+					thrust = front() * delta * calculateEjectionVelocity(spec, Pa, r);
+					fluidChanges[spec.R] -= delta;
+				}
+				else if constexpr (std::is_same_v<T, BiPropSpec>) {
+					double x = spec.maxX;
+					double y = spec.maxY;
+					pair<double, double> pairA = fluids[spec.A];
+					pair<double, double> pairB = fluids[spec.B];
+					double A = pairA.first;
+					double B = pairB.first;
+					double deltaA = min(A, x * dt);
+					double deltaB = min(B, y * dt);
+					double delta = deltaA + deltaB;
+					thrust = front() * delta * calculateEjectionVelocity(spec, Pa, x, y);
+					fluidChanges[spec.A] -= deltaA;
+					fluidChanges[spec.B] -= deltaB;
+				}
+			}, *data
+		);
 	}
 }
 void GridElement::integrate(double t, double dt) {
