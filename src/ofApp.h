@@ -1020,7 +1020,10 @@ optional<variant<MonoPropSpec, BiPropSpec>> GridElement::engineData() {
 
 	//for monopropellant engines:
 	//m=mol of exhaust per reaction
-	//f=3*number of atoms in exhaust-number of bonds
+	//f=3*number of atoms in exhaust-number of DOF not activated
+	//(look up wavenumber then mT=hcv/kb where v is the wavenumber.
+	//don't use the actual temperature as calculated above,just guess a reasonable one.
+	//a DOF is not activated if its equivalent temperature is more than the actual temperature.)
 	//r=kg of fuel per second
 	//needs:m,H,f,Ae,An,maxR
 	//needs r and Pa from elsewhere
