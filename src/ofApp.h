@@ -766,6 +766,7 @@ glm::dvec3 corners_of_unit_cube[8] = {
 struct MonoPropSpec {
 	int m;//mol of exhaust in reaction formula
 	double H;//J/mol of enthalpy in reaction formula
+	double M;//molar mass of exhaust
 	int f;//DOF of exhaust,if there are multiple types of exhaust give molar average
 	double Ae;//area of end of nozzle
 	double An;//area of choke point of nozzle
@@ -779,6 +780,7 @@ struct BiPropSpec {
 	double H;//aA+bB->cC+H
 	double Ma;//molar masses
 	double Mb;
+	double Mc;
 	int Fa;//DOFs
 	int Fb;
 	int Fc;
@@ -798,17 +800,17 @@ double solveForMachNumber2(double r2, double f) {
 	//also return x^2,nobody needs x itsself
 	return 1;
 }
-double calculateEjectionVelocityInner(double f,double H,double m,double r,double An,double Ae,double Pa) {
+double calculateEjectionVelocityInner(double f, double H, double m, double r, double An, double Ae, double M, double Pa) {
 	//calculates effective ejection velocity
 	double y = 1 + 2 / f, fa = f / (f + 1), fb = (f + 1) / 2, fc = (f + 2) / 2, fd = 1 / f;
 	double T = H / (IDEAL_GAS_COEFF * fc * m);
-	double P0 = r / (An * sqrt(y / (IDEAL_GAS_COEFF * T)) * pow(fa, fb));
+	double P0 = r / (An * sqrt(y * M / (IDEAL_GAS_COEFF * T)) * pow(fa, fb));
 	double Me = solveForMachNumber2(Ae / An, f);
 	double Pe = P0 * pow(1 + Me * fd, -fc);
-	return sqrt(2 * fc * IDEAL_GAS_COEFF * T * (1 - pow(Pa / P0, 1 / fc))) + (Pe - Pa) / (Ae * r);
+	return sqrt(2 * fc * IDEAL_GAS_COEFF / M * T * (1 - pow(Pa / P0, 1 / fc))) + (Pe - Pa) / (Ae * r);
 }
 double calculateEjectionVelocity(MonoPropSpec spec, double Pa, double r) {
-	return calculateEjectionVelocityInner(spec.f, spec.H, spec.m, r, spec.An, spec.Ae, Pa);
+	return calculateEjectionVelocityInner(spec.f, spec.H, spec.m, r, spec.An, spec.Ae, spec.M, Pa);
 }
 double calculateEjectionVelocity(BiPropSpec spec, double Pa, double x,double y) {
 	double s = min(x / (spec.a * spec.Ma), y / (spec.b * spec.Mb));
@@ -816,8 +818,9 @@ double calculateEjectionVelocity(BiPropSpec spec, double Pa, double x,double y) 
 	double rb = y / spec.Mb - spec.b * s;
 	double rc = spec.c * s;
 	double f = (ra * spec.Fa + rb * spec.Fb + rc * spec.Fc) / (ra + rb + rc);
+	double M = (ra * spec.Ma + rb * spec.Mb + rc * spec.Mc) / (ra + rb + rc);
 	double m = (ra + rb + rc)/s;
-	return calculateEjectionVelocityInner(f, spec.H, m, x + y, spec.An, spec.Ae, Pa);
+	return calculateEjectionVelocityInner(f, spec.H, m, x + y, spec.An, spec.Ae, M, Pa);
 }
 class GridElement {
 public:
@@ -886,7 +889,7 @@ private:
 };
 GridElement::GridElement(string t, double m, double r, double f) {
 	type = t;
-	mass = m;
+	mass = m;//TODO:Adjust based on current fluid contents(in integrate())
 	COR = r;
 	COF = f;
 	frontFace = 4;
@@ -1006,8 +1009,8 @@ double GridElement::tankTransferRate() {
 	return 0;
 }
 optional<variant<MonoPropSpec, BiPropSpec>> GridElement::engineData() {
-	//v=sqrt(2fcRT*(1-(pa/p0)^(1/fc)))+(Pe-Pa)/Ae/r
-	//p0=r/(An*sqrt(y/RT)*fa^fb)
+	//v=sqrt(2fcRT/M*(1-(pa/p0)^(1/fc)))+(Pe-Pa)/Ae/r
+	//p0=r/(An*sqrt(yM/(RT))*fa^fb)
 	//MeAe/An=(kfa)^fb
 	//k=1+fdMe^2
 	//Pe=P0*k^-fc
@@ -1016,16 +1019,15 @@ optional<variant<MonoPropSpec, BiPropSpec>> GridElement::engineData() {
 	//fb=(f+1)/2
 	//fc=(f+2)/2
 	//fd=1/f
-	//T=H/(Rfcm)
+	//T=H/(Rfcm)->RT/M=H/m*(fcM)
 
 	//for monopropellant engines:
 	//m=mol of exhaust per reaction
 	//f=3*number of atoms in exhaust-number of DOF not activated
 	//(look up wavenumber then mT=hcv/kb where v is the wavenumber.
-	//don't use the actual temperature as calculated above,just guess a reasonable one.
 	//a DOF is not activated if its equivalent temperature is more than the actual temperature.)
 	//r=kg of fuel per second
-	//needs:m,H,f,Ae,An,maxR
+	//needs:m,H,M,f,Ae,An,maxR
 	//needs r and Pa from elsewhere
 
 	//for bipropellant engines:
@@ -1039,18 +1041,13 @@ optional<variant<MonoPropSpec, BiPropSpec>> GridElement::engineData() {
 	//f=(ra*Fa+rb*Fb+rc*Fc)/(ra+rb+rc)
 	//m=(ra+rb+rc)/s
 	//r=x+y
-	//needs:a,b,c,H,Ma,Mb,Fa,Fb,Fc,Ae,An,maxX,maxY
+	//M=(ra*Ma+rb*Mb+rc*Mc)/(ra+rb+rc)
+	//needs:a,b,c,H,Ma,Mb,Mc,Fa,Fb,Fc,Ae,An,maxX,maxY
 	//needs x,y,and Pa from somewhere else(how do we let the user control the fuel ratio?)
 
-
-	/*int m;//mol of exhaust in reaction formula
-	double H;//J/mol of enthalpy in reaction formula
-	int f;//DOF of exhaust,if there are multiple types of exhaust give molar average
-	double Ae;//area of end of nozzle
-	double An;//area of choke point of nozzle
-	double maxR;//maximum injection rate
-	string R;*/
-	if (type == "solid-rocket-engine")return { };//TODO:fill in
+	//this is more like a sugar/KNO3 rocket but i'm still going to stick to the elemental thing
+	//and call it metal.also the nozzle/throat sizes are dubious and come from chatgpt's janky math.
+	if (type == "solid-rocket-engine")return MonoPropSpec(14, 2800000.0, 31.0, 10, 0.032, 0.0054, 19.6, "metal");
 	return nullopt;
 }
 void GridElement::update(PhysicsGrid* ship, glm::dvec3 pos, double t, double dt) {
@@ -1081,9 +1078,9 @@ void GridElement::update(PhysicsGrid* ship, glm::dvec3 pos, double t, double dt)
 		if (next != nullptr) return;//oops,obstructed
 		//TODO:better obstruction check
 		//(check for all blocks in a cone?and the angle is related to how much the atmosphere harms the isp?)
-		double Pa;//TODO
+		double Pa=0;//TODO
 		glm::dvec3 thrust;
-		std::visit(
+		visit(
 			[&](const auto& spec) {
 				using T = std::decay_t<decltype(spec)>;
 				//TODO:differ injection rate from maximum injection rate

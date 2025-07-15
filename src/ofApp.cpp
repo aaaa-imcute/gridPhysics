@@ -51,6 +51,17 @@ void ofApp::setup(){
 	p->getItem(0, 1, 0)->rotateFrontFace();
 	p->updateGrid();
 	initialEnergy = p->totalEnergy();
+	auto spec = p->getItem(0, -1, 0)->engineData();
+	visit(
+		[&](const auto& spec) {
+			using T = std::decay_t<decltype(spec)>;
+			if constexpr (std::is_same_v<T, MonoPropSpec>) {
+				double test = 0.0;
+				test = calculateEjectionVelocity(spec, 0, spec.maxR);
+				test *= 1.0;//reported 165km/s hmm(TODO)
+			}
+		}, *spec
+	);
 }
 constexpr double PHYSICS_DT = 1.0/600;
 double remainingSimulation = 0.0;
