@@ -766,7 +766,7 @@ glm::dvec3 corners_of_unit_cube[8] = {
 struct MonoPropSpec {
 	int m;//mol of exhaust in reaction formula
 	double H;//J/mol of enthalpy in reaction formula
-	double M;//molar mass of exhaust
+	double M;//molar mass of exhaust(kg/mol,not g/mol!)
 	int f;//DOF of exhaust,if there are multiple types of exhaust give molar average
 	double Ae;//area of end of nozzle
 	double An;//area of choke point of nozzle
@@ -798,7 +798,17 @@ double solveForMachNumber2(double r2, double f) {
 	//this equation has atmost two roots,take the one where x^2 is larger.
 	//that solution represents the case where flow is choked and supersonic.
 	//also return x^2,nobody needs x itsself
-	return 1;
+	double a = r2 / pow(f / (f + 1), f + 1), b = 1 / f, c = f + 1;
+	double x = 100, dx = 0;//mach 10.apparently irl the highest-scoring ones here score ~8->x=64
+	//NR method works great on this kind of equation where the first derivative is monotonous
+	//apparently if x is ridiculously large then each step cuts it down by 1/(1+1/c)
+	if (a * x - pow(1 + b * x, c) >= 0)throw "unreasonable mach number(>10)";
+	double EP = 1e-8;
+	do {
+		dx = (a * x - pow(1 + b * x, c)) / (a - b * c * pow(1 + b * x, c - 1));
+		x -= dx;
+	} while (abs(dx) > EP);//dx shouldn't actually be less than 0 because of the monotonicity thing
+	return x;
 }
 double calculateEjectionVelocityInner(double f, double H, double m, double r, double An, double Ae, double M, double Pa) {
 	//calculates effective ejection velocity
@@ -807,7 +817,7 @@ double calculateEjectionVelocityInner(double f, double H, double m, double r, do
 	double P0 = r / (An * sqrt(y * M / (IDEAL_GAS_COEFF * T)) * pow(fa, fb));
 	double Me = solveForMachNumber2(Ae / An, f);
 	double Pe = P0 * pow(1 + Me * fd, -fc);
-	return sqrt(2 * fc * IDEAL_GAS_COEFF / M * T * (1 - pow(Pa / P0, 1 / fc))) + (Pe - Pa) / (Ae * r);
+	return sqrt(2 * fc * IDEAL_GAS_COEFF / M * T * (1 - pow(Pe / P0, 1 / fc))) + (Pe - Pa) * (Ae / r);
 }
 double calculateEjectionVelocity(MonoPropSpec spec, double Pa, double r) {
 	return calculateEjectionVelocityInner(spec.f, spec.H, spec.m, r, spec.An, spec.Ae, spec.M, Pa);
@@ -1047,7 +1057,10 @@ optional<variant<MonoPropSpec, BiPropSpec>> GridElement::engineData() {
 
 	//this is more like a sugar/KNO3 rocket but i'm still going to stick to the elemental thing
 	//and call it metal.also the nozzle/throat sizes are dubious and come from chatgpt's janky math.
-	if (type == "solid-rocket-engine")return MonoPropSpec(14, 2800000.0, 31.0, 10, 0.032, 0.0054, 19.6, "metal");
+	//although i made it have about the right amount of expansion at atmospheric pressure
+	//2600 @ atmospheric pressure
+	//4150 @ vacuum
+	if (type == "solid-rocket-engine")return MonoPropSpec(14, 2800000.0, 0.031, 10, 0.3, 0.0054, 19.6, "metal");
 	return nullopt;
 }
 void GridElement::update(PhysicsGrid* ship, glm::dvec3 pos, double t, double dt) {
