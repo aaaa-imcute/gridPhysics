@@ -150,7 +150,7 @@ void drawFaceNormal2D(glm::dvec3 v, glm::dvec2 pos) {//sceneDisplay==2
 }
 void getTriangleMesh(ofMesh& m, glm::dvec3 a, glm::dvec3 b, glm::dvec3 c) {
 	double scale = DM3_SCALE;
-	size_t baseIndex = m.getNumVertices();//compiler unhappy about "size_t to int is downgrading conversion" or smth
+	int baseIndex = (int)m.getNumVertices();//compiler unhappy about "size_t to int is downgrading conversion" or smth
 	glm::dvec3 normal = glm::cross(c - b, a - b);
 	m.addVertex(a * scale);
 	m.addVertex(b * scale);
@@ -764,12 +764,10 @@ glm::dvec3 corners_of_unit_cube[8] = {
 	{0.5,0.5,0.5}
 };
 struct MonoPropSpec {
-	int m;//mol of exhaust in reaction formula
-	double H;//J/mol of enthalpy in reaction formula
-	double M;//molar mass of exhaust(kg/mol,not g/mol!)
+	double Esp;//chemical energy per kg
 	int f;//DOF of exhaust,if there are multiple types of exhaust give molar average
-	double Ae;//area of end of nozzle
-	double An;//area of choke point of nozzle
+	double Ae;//how big the bell is
+	double Ar;//if you look into the bell,how likely are you to see into the hole?
 	double maxR;//maximum injection rate
 	string R;
 };
@@ -785,7 +783,7 @@ struct BiPropSpec {
 	int Fb;
 	int Fc;
 	double Ae;
-	double An;
+	double Ar;
 	double maxX;//maximum injection rates
 	double maxY;
 	string A;
@@ -808,29 +806,32 @@ double solveForMachNumber2(double r2, double f) {
 		dx = (a * x - pow(1 + b * x, c)) / (a - b * c * pow(1 + b * x, c - 1));
 		x -= dx;
 	} while (abs(dx) > EP);//dx shouldn't actually be less than 0 because of the monotonicity thing
+	if (x < 1)throw "still unreasonable mach number(<1)";
 	return x;
 }
-double calculateEjectionVelocityInner(double f, double H, double m, double r, double An, double Ae, double M, double Pa) {
+double calculateEjectionVelocityInner(double f, double Esp, double r, double Ar, double Ae, double Pa) {
 	//calculates effective ejection velocity
 	double y = 1 + 2 / f, fa = f / (f + 1), fb = (f + 1) / 2, fc = (f + 2) / 2, fd = 1 / f;
-	double T = H / (IDEAL_GAS_COEFF * fc * m);
-	double P0 = r / (An * sqrt(y * M / (IDEAL_GAS_COEFF * T)) * pow(fa, fb));
-	double Me = solveForMachNumber2(Ae / An, f);
-	double Pe = P0 * pow(1 + Me * fd, -fc);
-	return sqrt(2 * fc * IDEAL_GAS_COEFF / M * T * (1 - pow(Pe / P0, 1 / fc))) + (Pe - Pa) * (Ae / r);
+	double Me = solveForMachNumber2(Ar, f);
+	double Tr = 1 / (1 + Me * fd);//ratio between static temperature and stagnation temperature
+	double Ve = pow(Tr, fc) / (sqrt(y * fc / Esp) * pow(fa, fb));
+	//"velocity the pressure would accelerate the mass to at throat if it was at exit pressure" yeah that's weird
+	return sqrt(2 * Esp * (1 - Tr)) + Ve * Ar - Pa * Ae / r;
 }
 double calculateEjectionVelocity(MonoPropSpec spec, double Pa, double r) {
-	return calculateEjectionVelocityInner(spec.f, spec.H, spec.m, r, spec.An, spec.Ae, spec.M, Pa);
+	return calculateEjectionVelocityInner(spec.f, spec.Esp, r, spec.Ar, spec.Ae, Pa);
 }
-double calculateEjectionVelocity(BiPropSpec spec, double Pa, double x,double y) {
+double calculateEjectionVelocity(BiPropSpec spec, double Pa, double x, double y) {
 	double s = min(x / (spec.a * spec.Ma), y / (spec.b * spec.Mb));
+	//reaction stochiometricness=rc*spec.Mc/(x+y) (?)
 	double ra = x / spec.Ma - spec.a * s;
 	double rb = y / spec.Mb - spec.b * s;
 	double rc = spec.c * s;
-	double f = (ra * spec.Fa + rb * spec.Fb + rc * spec.Fc) / (ra + rb + rc);
-	double M = (ra * spec.Ma + rb * spec.Mb + rc * spec.Mc) / (ra + rb + rc);
-	double m = (ra + rb + rc)/s;
-	return calculateEjectionVelocityInner(f, spec.H, m, x + y, spec.An, spec.Ae, M, Pa);
+	double mols = ra + rb + rc;
+	double f = (ra * spec.Fa + rb * spec.Fb + rc * spec.Fc) / mols;
+	double M = (ra * spec.Ma + rb * spec.Mb + rc * spec.Mc) / mols;
+	double m = mols / s;
+	return calculateEjectionVelocityInner(f, spec.H / m / M, x + y, spec.Ar, spec.Ae, Pa);
 }
 class GridElement {
 public:
@@ -1058,9 +1059,9 @@ optional<variant<MonoPropSpec, BiPropSpec>> GridElement::engineData() {
 	//this is more like a sugar/KNO3 rocket but i'm still going to stick to the elemental thing
 	//and call it metal.also the nozzle/throat sizes are dubious and come from chatgpt's janky math.
 	//although i made it have about the right amount of expansion at atmospheric pressure
-	//2600 @ atmospheric pressure
-	//4150 @ vacuum
-	if (type == "solid-rocket-engine")return MonoPropSpec(14, 2800000.0, 0.031, 10, 0.3, 0.0054, 19.6, "metal");
+	//1707 @ 101.325kPa
+	//2482 @ vacuum
+	if (type == "solid-rocket-engine")return MonoPropSpec(3.5e6, 10, 0.15, 15, 19.6, "metal");
 	return nullopt;
 }
 void GridElement::update(PhysicsGrid* ship, glm::dvec3 pos, double t, double dt) {
