@@ -812,11 +812,23 @@ double solveForMachNumber2(double r2, double f) {
 double calculateEjectionVelocityInner(double f, double Esp, double r, double Ar, double Ae, double Pa) {
 	//calculates effective ejection velocity
 	double y = 1 + 2 / f, fa = f / (f + 1), fb = (f + 1) / 2, fc = (f + 2) / 2, fd = 1 / f;
-	double Me = solveForMachNumber2(Ar, f);
-	double Tr = 1 / (1 + Me * fd);//ratio between static temperature and stagnation temperature
-	double Ve = pow(Tr, fc) / (sqrt(y * fc / Esp) * pow(fa, fb));
+	double Me2 = solveForMachNumber2(Ar * Ar, f);//proportional to something about ar
+	double Tr = 1 / (1 + Me2 * fd);//proportion of chemical energy turned into thermal energy(the rest is kinetic energy)
+	double Ve = pow(Tr, fc) / (sqrt(y * fc / Esp) * pow(fa, fb));//pressure at exit=Ve*Ar/Ae*r
+	//proportional to sqrt(Esp) and something about ar
 	//"velocity the pressure would accelerate the mass to at throat if it was at exit pressure" yeah that's weird
 	return sqrt(2 * Esp * (1 - Tr)) + Ve * Ar - Pa * Ae / r;
+	//first term proportional to sqrt(Esp) and something about ar
+	//second term proportional to sqrt(Esp) and Ar/something about ar
+	//(doesn't seem right but remember real rocket engines don't have a fixed mass flow rate and get choked)
+	//third term proportional to atmospheric pressure
+	//third term proportional to exit area and inversely proportional to mass flow rate
+	//so:
+	//atmospheric pressure linearly decreases isp
+	//mass flow rate inversely decreases isp
+	//exit area linearly decreases isp
+	//fuel energy per unit mass ^1/2ly increases isp
+	//area ratio either linearly or logarithmically increases isp depending on how incorrectly expanded the engine is
 }
 double calculateEjectionVelocity(MonoPropSpec spec, double Pa, double r) {
 	return calculateEjectionVelocityInner(spec.f, spec.Esp, r, spec.Ar, spec.Ae, Pa);
@@ -827,10 +839,18 @@ double calculateEjectionVelocity(BiPropSpec spec, double Pa, double x, double y)
 	double ra = x / spec.Ma - spec.a * s;
 	double rb = y / spec.Mb - spec.b * s;
 	double rc = spec.c * s;
-	double mols = ra + rb + rc;
+	double mols = ra + rb + rc;//linear to the reagent depleted.
+	//if the mols of product is greater than the OTHER reagent
+	//then it increases with the mass flow rate of the depleted reagent
+	//otherwise it decreases
 	double f = (ra * spec.Fa + rb * spec.Fb + rc * spec.Fc) / mols;
+	//complex relation between non-depleted reagent and f
+	//something like (r/M+something)/(r/M+something else)
 	double M = (ra * spec.Ma + rb * spec.Mb + rc * spec.Mc) / mols;
 	double m = mols / s;
+	//m*M increases with the ratio of the non-depleted reagent to the depleted reagent
+	//effective energy density is proportional to the stochiometric energy density
+	//and inversely proportional to m*M
 	return calculateEjectionVelocityInner(f, spec.H / m / M, x + y, spec.Ar, spec.Ae, Pa);
 }
 class GridElement {
