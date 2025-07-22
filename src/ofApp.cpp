@@ -51,7 +51,7 @@ void ofApp::setup(){
 	p->getItem(0, 1, 0)->rotateFrontFace();
 	p->updateGrid();
 	initialEnergy = p->totalEnergy();
-	auto spec = p->getItem(0, -1, 0)->engineData();
+	/*auto spec = p->getItem(0, -1, 0)->engineData();
 	visit(
 		[&](const auto& spec) {
 			using T = std::decay_t<decltype(spec)>;
@@ -61,7 +61,7 @@ void ofApp::setup(){
 				test *= 1.0;
 			}
 		}, *spec
-	);
+	);*/
 }
 constexpr double PHYSICS_DT = 1.0/600;
 double remainingSimulation = 0.0;
@@ -136,11 +136,16 @@ void ofApp::draw(){
 		ofDrawAxis(256);
 		glm::dvec3 test = planets[0]->terrain.getSurfaceNormal(p->position);
 		double d = glm::length(p->position) - planets[0]->radius * (1 + planets[0]->terrain.get(p->position));
-		drawPlaneWithNormal(test, d*DM3_SCALE, 1000);
+		//drawPlaneWithNormal(test, d*DM3_SCALE, 1000);
 		for (auto& pair : p->contacts) {
 			ofSetColor(255, 255, 255);
 			ofDrawSphere(DM3_SCALE * (p->angle * pair.first), 16);
 		}
+		for (auto& pair : arrows) {
+			ofSetColor(255, 255, 0);
+			ofDrawArrow(pair.first * DM3_SCALE, pair.second * DM3_SCALE);
+		}
+		arrows.clear();
 		ofDisableDepthTest();
 		camera.end();
 		ofPopMatrix();

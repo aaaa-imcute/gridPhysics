@@ -1364,6 +1364,7 @@ glm::dvec3 PhysicsGrid::calculateContacts(glm::dvec3 sn) {
 	}
 	return axis;
 }
+vector<pair<glm::dvec3, glm::dvec3>> arrows;
 glm::dvec3 PhysicsGrid::computeNFDistribution(glm::dvec3 kh, glm::dvec3 force, glm::dvec3 torque) {
 	//force torque and normal(kh) must be local,i.e probably glm::inverse(angle)*force
 	//output:{a,b,c}
@@ -1483,10 +1484,16 @@ void PhysicsGrid::updatePhysics(double t, double dt) {
 				double ef = glm::length(vel) * mass / dt;
 				double f = (pair.first.x * fd.x + pair.first.y * fd.y + fd.z) * pair.second;
 				if (f * SF_BONUS < ef) situ = ShipSituation::SlIDING;
-				f = min(f, ef);
 				glm::dvec3 fr = -f * glm::normalize(vel);
+				fr = fr - sn * glm::dot(sn, fr);
+				glm::dvec3 gc = angle * pair.first;
+				glm::dvec3 sgc = gc - sn * glm::dot(sn, gc);
+				glm::dvec3 nfr = sgc * glm::dot(sgc, fr) / glm::length2(sgc);
+				//arrows.push_back({ gc,gc + nfr });
+				//arrows.push_back({ gc,gc + fr - nfr });
+				arrows.push_back({ gc,gc + fr });
 				friction += fr;
-				ft += glm::cross(angle * pair.first, fr);
+				ft += glm::cross(sgc, fr);//swapping this for gc makes it very weird
 			}
 			if (situ == ShipSituation::SlIDING) {
 				integrate(t, dt, glm::dvec3(0), ft * dt, tf + friction);
