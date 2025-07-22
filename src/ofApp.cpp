@@ -1,5 +1,4 @@
 #include "ofApp.h"
-//GridElement t("test2", 1, 0.7, 0.15);
 shared_ptr<PhysicsGrid> p;
 double initialEnergy;
 //orbital speed at 680000=2278.9316
