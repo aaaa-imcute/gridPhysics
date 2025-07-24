@@ -6,11 +6,12 @@ void ofApp::setup(){
 	compute_legendre_coeff();
 	ofDisableAntiAliasing();
 	ofDisableBlendMode();
+	if (!font.load("cour.ttf", 12, true, true, true, 0.0f, 96))throw "bad font";
 	sunLight = make_shared<ofLight>(ofLight());
 	sunLight->setPointLight();
 	sunLight->setSpecularColor(ofColor::white);
 	sunLight->setPosition(0, 10000, 0);
-	camera.setFarClip(16777215.0);
+	camera3.setFarClip(16777215.0);
 	planets[0]->color = [&](double h)->ofColor {
 		if (h <= 0)return ofColor(0, 0, 255);
 		ofColor beach = ofColor(240, 220, 130);     // sandy yellow
@@ -75,28 +76,24 @@ void ofApp::update(){
 			totalTime += PHYSICS_DT;
 		}
 	}
-	if (keys['r']) {
+	/*if (keys['r']) {
 		p->angle = glm::inverse(camera.getGlobalOrientation());
-	}
+	}*/
 	
 }
-int dm2_layer = 0;
 void ofApp::draw(){
 	pmousePos=mousePos;
 	mousePos=glm::vec2(ofGetMouseX(), ofGetMouseY());
-	if(sceneDisplayed == 1 || sceneDisplayed == 3)camera.update();
-	if (keys['1']) {
-		sceneDisplayed = 1;
-		camera.angle.z = 1000;
-		camera.updateOrientation();
-	}
+	if(sceneDisplayed == 1)camera1.update();
+	if(sceneDisplayed == 3)camera3.update();
+	if (keys['1'])sceneDisplayed = 1;
 	if (keys['2'])sceneDisplayed = 2;
 	if (keys['3'])sceneDisplayed = 3;
 	switch(sceneDisplayed){
 	case 1:
 		ofEnableLighting();
 		sunLight->enable();
-		camera.begin();
+		camera1.begin();
 		ofEnableDepthTest();
 		for (int i = 0; i < planets.size();i++) {
 			planets[i]->displayMode1(totalTime,i);
@@ -106,14 +103,13 @@ void ofApp::draw(){
 		p->displayMode1(totalTime);
 		//ofDrawAxis(256);
 		ofDisableDepthTest();
-		camera.end();
+		camera1.end();
 		break;
 	case 2:
 		ofPushMatrix();
 		ofTranslate(ofGetWidth() / 2, ofGetHeight() / 2);
 		ofScale(mapScale);
 		ofTranslate(mapPos);
-		if (mouse[2])selectedPart = nullptr;
 		//atlas.draw(0, 0);
 		p->displayMode2(dm2_layer);
 		//ofSetColor(255, 255, 255);
@@ -124,7 +120,7 @@ void ofApp::draw(){
 		//ofEnableLighting();
 		//sunLight->enable();
 		ofPushMatrix();
-		camera.begin();
+		camera3.begin();
 		ofEnableDepthTest();
 		ofScale(1, 1, -1);
 		for (int i = 0; i < planets.size(); i++) {
@@ -146,13 +142,13 @@ void ofApp::draw(){
 		}
 		arrows.clear();
 		ofDisableDepthTest();
-		camera.end();
+		camera3.end();
 		ofPopMatrix();
 		//ofDisableLighting();
 		//sunLight->disable();
 		ofPushStyle();
 		ofSetColor(255, 255, 0);
-		ofDrawBitmapString(
+		font.drawString(
 			to_string(ofGetFrameRate()) + "\n" +
 			printSituation(p->situ) + "\n" +
 			to_string(glm::length(p->position)) + "\n" +
@@ -168,20 +164,14 @@ void ofApp::draw(){
 void ofApp::keyPressed(int key){
 	keys[key] = true;
 	if (sceneDisplayed == 2) {
-		if (selectedPart != nullptr) {
+		if (selectedPart != nullptr && round(selectedPos.y) == dm2_layer) {
 			if (key == 'r')selectedPart->rotateFrontFace();
 			if (key == 't')selectedPart->rotateTopFace();
 			if (key == 'y')selectedPart->rotateRightFace();
 			p->updateGrid();
 		}
-		if (key == 'w') {
-			dm2_layer++;
-			selectedPart = nullptr;
-		}
-		if (key == 's') {
-			dm2_layer--;
-			selectedPart = nullptr;
-		}
+		if (key == 'w')dm2_layer++;
+		if (key == 's')dm2_layer--;
 	}
 }
 
@@ -199,6 +189,7 @@ void ofApp::mouseDragged(int x, int y, int button){
 
 void ofApp::mousePressed(int x, int y, int button){
 	mouse[button] = true;
+	if (sceneDisplayed == 2)p->mousePressed(x, y, button);
 }
 
 void ofApp::mouseReleased(int x, int y, int button){
@@ -216,7 +207,7 @@ void ofApp::mouseExited(int x, int y){
 void ofApp::mouseScrolled(int x, int y, float sx, float sy) {
 	if (sceneDisplayed == 0 || sceneDisplayed == 2)mapScale *= pow(2, (sy / 4));
 	if (sceneDisplayed == 1)orbitScale *= pow(2, (sy / 4));
-	if (sceneDisplayed == 3)camera.mouseScrolled(sx, sy);
+	if (sceneDisplayed == 3)camera3.mouseScrolled(sx, sy);
 }
 
 void ofApp::windowResized(int w, int h){

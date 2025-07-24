@@ -16,6 +16,7 @@ glm::dvec2 untransform2D(glm::dvec2 vec) {
 	return glm::dvec4(temp.x, temp.y, 0, 1) * inverse;
 }
 glm::dvec2 mousePos, pmousePos;
+ofTrueTypeFont font;
 class easyCam : public ofCamera {
 public:
 	glm::dvec3 angle;//pitch yaw radius
@@ -48,7 +49,8 @@ public:
 };
 glm::dvec2 mapPos;//sceneDisplayed==0||sceneDisplayed==2
 double mapScale = 16;
-easyCam camera;//sceneDisplayed==1||sceneDisplayed==3
+int dm2_layer = 0;
+easyCam camera1,camera3;//sceneDisplayed==1,sceneDisplayed==3
 shared_ptr<ofLight> sunLight;//pointer,otherwise error
 //TODO:move this into the any planet without an orbit(i.e the sun)
 namespace std {
@@ -643,7 +645,7 @@ void Planet::displayMode1(double t, int planetI) {
 	ofTranslate(glm::vec3(p));
 	ofFill();
 	//ofDrawSphere(radius * orbitScale);
-	glm::dvec3 ref = (glm::dvec3)camera.getGlobalPosition() - p;
+	glm::dvec3 ref = (glm::dvec3)camera1.getGlobalPosition() - p;
 	double r = glm::length(ref);
 	double ter = 1 + terrain.get(ref);
 	if (r <= radius * orbitScale * ter) {
@@ -706,10 +708,12 @@ void Planet::displayMode3(glm::dvec3 shipPos, int planetI) {
 	*/
 	ofPopMatrix();
 }
+class MenuElement;
 class GridElement;
 class PhysicsGrid;
 shared_ptr<GridElement> selectedPart;//sceneDisplayed==2
 glm::dvec3 selectedPos;
+glm::dvec2 menuPos;
 enum class ShipSituation {
 	LANDED,
 	SlIDING,
@@ -853,7 +857,39 @@ double calculateEjectionVelocity(BiPropSpec spec, double Pa, double x, double y)
 	//and inversely proportional to m*M
 	return calculateEjectionVelocityInner(f, spec.H / m / M, x + y, spec.Ar, spec.Ae, Pa);
 }
-class GridElement {
+class MenuElement {
+public:
+	virtual ~MenuElement() = default;
+
+	virtual double width() const = 0;
+	virtual double height() const = 0;
+	virtual void display() = 0;
+	virtual void update(shared_ptr<GridElement> parent, glm::dvec2 mp) = 0;
+};
+class LabelMenuElement : public MenuElement {
+public:
+	string label;
+	double GridElement::* member;//TODO:change to lambda
+	double value = 0;
+	LabelMenuElement(string l, double GridElement::* m) : label(l),member(m) {}
+	void update(shared_ptr<GridElement> parent, glm::dvec2 mp) {
+		value = (*parent).*member;
+	}
+	string text() const {
+		return label + to_string(value);
+	}
+	void display() {
+		ofSetColor(0, 255, 0);
+		font.drawString(text(), 0, height());
+	}
+	double width() const {
+		return font.stringWidth(text());
+	}
+	double height() const {
+		return font.stringHeight(text());
+	}
+};
+class GridElement : public enable_shared_from_this<GridElement> {
 public:
 	GridElement(string t, double m, double r, double f);
 	string type;
@@ -868,15 +904,17 @@ public:
 	void rotateFrontFace();
 	void rotateTopFace();
 	void rotateRightFace();
+	vector<shared_ptr<MenuElement>> menu;
+	void displayMenu();
 	void displayMode2();
 	unordered_map<string, pair<double, double>> fluids;
 	unordered_map<string, double> fluidChanges;
 	double tankTransferRate();
 	optional<variant<MonoPropSpec, BiPropSpec>> engineData();
-	void update(PhysicsGrid* ship, glm::dvec3 pos, double t, double dt);
+	void update(shared_ptr<PhysicsGrid> ship, glm::dvec3 pos, double t, double dt);
 	void integrate(double t, double dt);
 };
-class PhysicsGrid {
+class PhysicsGrid : public enable_shared_from_this<PhysicsGrid> {
 	//stupid c++ requiring me to declare such a large class
 public:
 	shared_ptr<Planet> soi;
@@ -898,6 +936,8 @@ public:
 	void removeItem(int x, int y, int z);
 	void removeItem(glm::dvec3 v);
 	void displayMode1(double t);
+	bool mousePressedOnLastFrame = false;
+	void mousePressed(int x, int y, int button);
 	void displayMode2(int y);
 	void displayMode3();
 	void updateGrid();
@@ -936,6 +976,9 @@ GridElement::GridElement(string t, double m, double r, double f) {
 		//TODO:thrust
 		fluids = { {"metal",{1000,1000}} };
 	}
+	menu = { 
+		make_shared<LabelMenuElement>(LabelMenuElement("Mass:",& GridElement::mass))
+	};
 };
 glm::dvec3 GridElement::faceNormal(int face) {//returns ship coordinates
 	switch (face) {
@@ -1021,6 +1064,27 @@ void GridElement::rotateRightFace() {
 	rightFace++;
 	rightFace %= 2;
 }
+void GridElement::displayMenu() {
+	double margin = 4;
+	double w = 0, h = margin;
+	for (auto& item : menu) {
+		w = max(w, item->width()) + margin * 2;
+		h += item->height() + margin;
+	}
+	ofSetColor(0, 0, 0);
+	ofDrawRectangle(0, 0, w, h);
+	double x = margin, y = margin;
+	glm::dvec2 mp = untransform2D(mousePos);
+	for (auto& item : menu) {
+		ofPushMatrix();
+		ofTranslate(x, y);
+		glm::dvec2 lmp = mp - glm::dvec2(x, y);
+		y += item->height() + margin;
+		item->update(shared_from_this(),lmp);
+		item->display();
+		ofPopMatrix();
+	}
+}
 void GridElement::displayMode2() {
 	vector<int> f = faces();
 	glm::dvec3 p = pointingFace(2);
@@ -1084,7 +1148,7 @@ optional<variant<MonoPropSpec, BiPropSpec>> GridElement::engineData() {
 	if (type == "solid-rocket-engine")return MonoPropSpec(3.5e6, 10, 0.15, 15, 19.6, "metal");
 	return nullopt;
 }
-void GridElement::update(PhysicsGrid* ship, glm::dvec3 pos, double t, double dt) {
+void GridElement::update(shared_ptr<PhysicsGrid> ship, glm::dvec3 pos, double t, double dt) {
 	double rate = tankTransferRate();
 	if (rate != 0) {
 		shared_ptr<GridElement> next = ship->getItem(pos + front());
@@ -1199,7 +1263,11 @@ void PhysicsGrid::displayMode1(double t) {
 	ofPopMatrix();
 	orbit.displayMode1(t);
 }
+void PhysicsGrid::mousePressed(int x, int y, int button) {
+	if (button == 2)mousePressedOnLastFrame = true;//can't do it rn,no matrix transform
+}
 void PhysicsGrid::displayMode2(int y) {
+	if (mousePressedOnLastFrame) selectedPart = nullptr;
 	for (auto& ptr : contents) {
 		glm::dvec3 pos = ptr.first;
 		if (round(pos.y) != y) continue;
@@ -1209,13 +1277,17 @@ void PhysicsGrid::displayMode2(int y) {
 		ofTranslate(glm::vec3(sPos));
 		ptr.second->displayMode2();
 		ofPopMatrix();
-		glm::dvec2 m = untransform2D(mousePos);
-		if (mouse[2] && m.x > sPos.x && m.x<sPos.x + 16 && m.y>sPos.y && m.y < sPos.y + 16) {
-			selectedPart = ptr.second;
-			selectedPos = pos;
+		if (mousePressedOnLastFrame) {
+			glm::dvec2 m = untransform2D(mousePos);
+			if (m.x > sPos.x && m.x<sPos.x + 16 && m.y>sPos.y && m.y < sPos.y + 16) {
+				selectedPart = ptr.second;
+				selectedPos = pos;
+				menuPos = m;
+			}
 		}
 	}
-	if (selectedPart != nullptr) {
+	mousePressedOnLastFrame = false;
+	if (selectedPart != nullptr && round(selectedPos.y) == y) {
 		glm::dvec2 sPos(-selectedPos.z * 16, -selectedPos.x * 16);
 		ofFill();
 		ofSetColor(0, 0, 255);
@@ -1224,6 +1296,11 @@ void PhysicsGrid::displayMode2(int y) {
 		drawFaceNormal2D(selectedPart->top(), sPos + glm::dvec2(8, 8));
 		ofSetColor(255, 0, 0);
 		drawFaceNormal2D(selectedPart->right(), sPos + glm::dvec2(8, 8));
+		ofPushMatrix();
+		ofTranslate(menuPos);
+		ofScale(1.0/16);
+		selectedPart->displayMenu();
+		ofPopMatrix();
 	}
 }
 void PhysicsGrid::displayMode3() {
@@ -1704,7 +1781,7 @@ double PhysicsGrid::totalEnergy() {
 void PhysicsGrid::updateInternal(double t, double dt) {
 	for (auto& ptr : contents) {
 		if (ptr.second == nullptr)continue;
-		ptr.second->update(this, ptr.first, t, dt);
+		ptr.second->update(shared_from_this(), ptr.first, t, dt);
 	}
 	for (auto& ptr : contents) {
 		if (ptr.second == nullptr)continue;
