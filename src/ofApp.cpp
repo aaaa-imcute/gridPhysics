@@ -4,9 +4,9 @@ double initialEnergy;
 //orbital speed at 680000=2278.9316
 void ofApp::setup(){
 	compute_legendre_coeff();
-	ofDisableAntiAliasing();
 	ofDisableBlendMode();
-	if (!font.load("cour.ttf", 12, true, true, true, 0.0f, 96))throw "bad font";
+	ofEnableAntiAliasing();
+	if (!font.load("cour.ttf", 12/FONT_SCALE, true, true, true, 0.0f, 96))throw "bad font";//todo:fix image quality issue(unclear text)
 	sunLight = make_shared<ofLight>(ofLight());
 	sunLight->setPointLight();
 	sunLight->setSpecularColor(ofColor::white);
@@ -148,7 +148,7 @@ void ofApp::draw(){
 		//sunLight->disable();
 		ofPushStyle();
 		ofSetColor(255, 255, 0);
-		font.drawString(
+		drawText(
 			to_string(ofGetFrameRate()) + "\n" +
 			printSituation(p->situ) + "\n" +
 			to_string(glm::length(p->position)) + "\n" +
@@ -223,12 +223,13 @@ void ofApp::dragEvent(ofDragInfo dragInfo){
 }
 
 int main() {
-
-	//Use ofGLFWWindowSettings for more options like multi-monitor fullscreen
 	ofGLFWWindowSettings settings;
-	settings.setSize(1920, 1080);
+	settings.monitor = 0;
+	settings.resizable = false;
 	settings.windowMode = OF_WINDOW;
+	settings.setSize(1920, 1080);
 	settings.decorated = false;
+	settings.numSamples = 4;
 	auto window = ofCreateWindow(settings);
 	ofRunApp(window, make_shared<ofApp>());
 	ofRunMainLoop();

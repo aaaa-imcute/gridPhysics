@@ -64,24 +64,25 @@ namespace std {
 glm::dvec3 orbitPos;//sceneDisplayed==1
 double orbitScale = 1.0 / 600;
 vector<string> faceNames = { "right","left","top","bottom","front","back" };
-unordered_map<string, ofImage> imageCache;
-ofImage loadImage(string img) {
+unordered_map<string, shared_ptr<ofImage>> imageCache;
+shared_ptr<ofImage> loadImage(string img) {
 	auto result = imageCache.find(img);
-	ofImage temp;
+	shared_ptr<ofImage> ret;
 	if (result == imageCache.end()) {
-		if (!temp.load(img))throw "image " + img + " not loaded correctly";
-		temp.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
-		imageCache[img] = temp;
+		ret = make_shared<ofImage>();
+		if (!ret->load(img))throw "image " + img + " not loaded correctly";
+		ret->getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
+		imageCache[img] = ret;
 	}
 	else {
-		temp = result->second;
+		ret = result->second;
 	}
-	return temp;
+	return ret;
 }
 void drawImage(string img, float x, float y) {
-	ofImage temp = loadImage(img);
+	shared_ptr<ofImage> temp = loadImage(img);
 	ofSetColor(255, 255, 255);
-	temp.draw(x, y);
+	temp->draw(x, y);
 }
 ofFbo atlas;
 unordered_map<string, glm::dvec2> atlasMap;
@@ -95,9 +96,9 @@ constexpr int ATLAS_SIZE = 4096;//needs to be divisible by 16
 void walkTextures(string path, int& x, int& y) {
 	ofDirectory dir(path);
 	if (!dir.isDirectory()) {
-		ofImage temp = loadImage(path);//fixed dumb getOriginalDirectory call and string manipulation
+		shared_ptr<ofImage> temp = loadImage(path);//fixed dumb getOriginalDirectory call and string manipulation
 		atlas.begin();
-		temp.draw(x, y);
+		temp->draw(x, y);
 		atlas.end();
 		filesystem::path relPath = filesystem::relative(path, "textures");
 		relPath.replace_extension();
@@ -118,10 +119,13 @@ void walkTextures(string path, int& x, int& y) {
 void createAtlas() {
 	if (atlasReady)return;
 	atlasReady = true;
-	int SIZE = ATLAS_SIZE;//so max.4096 textures
-	//why?why 4096?it should be (4096/16)^2=65536
-	//mb that day i was just dumb lol
-	atlas.allocate(SIZE, SIZE);
+	ofFbo::Settings fboSettings;
+	fboSettings.width = ATLAS_SIZE;
+	fboSettings.height = ATLAS_SIZE;
+	fboSettings.internalformat = GL_RGBA;
+	fboSettings.numSamples = 0;
+	atlas.allocate(fboSettings);
+	atlas.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 	atlas.begin();
 	ofClear(0);
 	atlas.end();
@@ -149,6 +153,23 @@ void drawFaceNormal2D(glm::dvec3 v, glm::dvec2 pos) {//sceneDisplay==2
 		drawLine(pos + glm::dvec2(-4, -4), pos + glm::dvec2(4, 4), 1);
 		drawLine(pos + glm::dvec2(-4, 4), pos + glm::dvec2(4, -4), 1);
 	}
+}
+constexpr double FONT_SCALE = 0.25;
+void drawText(string t, double x, double y) {
+	ofPushMatrix();
+	ofTranslate(x, y);
+	ofScale(FONT_SCALE, FONT_SCALE);
+	font.drawStringAsShapes(t, 0, 0);
+	ofPopMatrix();
+}
+void drawText(string t, glm::dvec2 pos) {
+	drawText(t, pos.x, pos.y);
+}
+double textWidth(string t) {
+	return font.stringWidth(t) * FONT_SCALE;
+}
+double textHeight(string t) {
+	return font.stringHeight(t) * FONT_SCALE;
 }
 void getTriangleMesh(ofMesh& m, glm::dvec3 a, glm::dvec3 b, glm::dvec3 c) {
 	double scale = DM3_SCALE;
@@ -595,14 +616,19 @@ vector<shared_ptr<Planet>> planets = {
 void createPlanetAtlas() {
 	if (planetAtlasReady)return;
 	planetAtlasReady = true;
-	int SIZE = ATLAS_SIZE;
-	planetAtlas.allocate(SIZE, SIZE);
+	ofFbo::Settings fboSettings;
+	fboSettings.width = ATLAS_SIZE;
+	fboSettings.height = ATLAS_SIZE;
+	fboSettings.internalformat = GL_RGBA;
+	fboSettings.numSamples = 0;
+	planetAtlas.allocate(fboSettings);
+	planetAtlas.getTexture().setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 	planetAtlas.begin();
 	ofClear(0);
 	for (int y = 0; y < planets.size(); y++) {
-		for (int x = 0; x < SIZE; x++) {
+		for (int x = 0; x < ATLAS_SIZE; x++) {
 			ofFill();
-			ofSetColor(planets[y]->color((double(x) / SIZE) * 2 - 1));
+			ofSetColor(planets[y]->color((double(x) / ATLAS_SIZE) * 2 - 1));
 			ofDrawRectangle(x, y, 1, 1);
 		}
 	}
@@ -660,6 +686,7 @@ void Planet::displayMode1(double t, int planetI) {
 	brush.setScale(radius * orbitScale / DM3_SCALE);
 	createPlanetAtlas();
 	ofTexture tex = planetAtlas.getTexture();
+	tex.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 	tex.bind();
 	brush.draw();
 	tex.unbind();
@@ -693,6 +720,7 @@ void Planet::displayMode3(glm::dvec3 shipPos, int planetI) {
 	brush.setScale(radius);
 	createPlanetAtlas();
 	ofTexture t = planetAtlas.getTexture();
+	t.setTextureMinMagFilter(GL_NEAREST, GL_NEAREST);
 	t.bind();
 	brush.draw();
 	t.unbind();
@@ -880,13 +908,13 @@ public:
 	}
 	void display() {
 		ofSetColor(0, 255, 0);
-		font.drawString(text(), 0, height());
+		drawText(text(), 0, height());
 	}
 	double width() const {
-		return font.stringWidth(text());
+		return textWidth(text());
 	}
 	double height() const {
-		return font.stringHeight(text());
+		return textHeight(text());
 	}
 };
 class GridElement : public enable_shared_from_this<GridElement> {
