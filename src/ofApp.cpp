@@ -115,6 +115,7 @@ void ofApp::draw(){
 		//ofSetColor(255, 255, 255);
 		//ofDrawCircle(untransform2D(mousePos), 4.0 / mapScale);
 		ofPopMatrix();
+		drawText(to_string(pmp.x) + "," + to_string(pmp.y), 100, 100);
 		break;
 	case 3:
 		//ofEnableLighting();
@@ -159,6 +160,7 @@ void ofApp::draw(){
 		ofPopStyle();
 		break;
 	}
+	mousePressedOnLastFrame = false;
 }
 
 void ofApp::keyPressed(int key){
@@ -189,7 +191,7 @@ void ofApp::mouseDragged(int x, int y, int button){
 
 void ofApp::mousePressed(int x, int y, int button){
 	mouse[button] = true;
-	if (sceneDisplayed == 2)p->mousePressed(x, y, button);
+	mousePressedOnLastFrame = true;
 }
 
 void ofApp::mouseReleased(int x, int y, int button){

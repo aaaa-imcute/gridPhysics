@@ -3,19 +3,26 @@
 #include "ofMain.h"
 #include "SH.cpp"
 #include <variant>
-#include <optional>
 double ffmod(double x, double y) {
 	return fmod(fmod(x, y) + y, y);
 }
 unordered_map<int, bool> keys;
 unordered_map<int, bool> mouse;
 glm::dvec2 untransform2D(glm::dvec2 vec) {
-	glm::dvec2 temp = vec - glm::dvec2(ofGetWidth() / 2, ofGetHeight() / 2);
-	glm::dmat4 modelView = ofGetCurrentMatrix(OF_MATRIX_MODELVIEW);
-	glm::dmat4 inverse = glm::inverse(modelView);
-	return glm::dvec4(temp.x, temp.y, 0, 1) * inverse;
+	ofRectangle viewport = ofGetCurrentViewport();
+	glm::vec3 windowCoords(vec.x, viewport.height - (vec.y - viewport.y), 0.0);
+	glm::vec3 center(ofGetWidth() / 2, ofGetHeight() / 2, 0);
+	windowCoords = center + 10 * (windowCoords - center);//magic number.stupid of...
+	glm::dvec3 worldPos = glm::unProject(
+		windowCoords,
+		ofGetCurrentMatrix(OF_MATRIX_MODELVIEW),
+		ofGetCurrentMatrix(OF_MATRIX_PROJECTION),
+		glm::vec4(viewport.x, viewport.y, viewport.width, viewport.height)
+	);
+	return glm::dvec2(worldPos.x, worldPos.y);
 }
 glm::dvec2 mousePos, pmousePos;
+bool mousePressedOnLastFrame = false;
 ofTrueTypeFont font;
 class easyCam : public ofCamera {
 public:
@@ -742,6 +749,10 @@ class PhysicsGrid;
 shared_ptr<GridElement> selectedPart;//sceneDisplayed==2
 glm::dvec3 selectedPos;
 glm::dvec2 menuPos;
+constexpr double MENU_MARGIN = 4;
+const ofColor MENU_COLOR1 = ofColor(0, 0, 0);//background
+const ofColor MENU_COLOR2 = ofColor(255, 255, 255);//buttons etc
+const ofColor MENU_COLOR3 = ofColor(0, 255, 0);//text
 enum class ShipSituation {
 	LANDED,
 	SlIDING,
@@ -893,21 +904,24 @@ public:
 	virtual double height() const = 0;
 	virtual void display() = 0;
 	virtual void update(shared_ptr<GridElement> parent, glm::dvec2 mp) = 0;
+	ofRectangle boundingBox() const {
+		return ofRectangle(0, 0, width(), height());
+	}
 };
 class LabelMenuElement : public MenuElement {
 public:
 	string label;
-	double GridElement::* member;//TODO:change to lambda
-	double value = 0;
-	LabelMenuElement(string l, double GridElement::* m) : label(l),member(m) {}
+	function<string(shared_ptr<GridElement>)> content;
+	string value;//so updates only happen when update() is called
+	LabelMenuElement(string l, function<string(shared_ptr<GridElement>)> c) : label(l),content(c) {}
 	void update(shared_ptr<GridElement> parent, glm::dvec2 mp) {
-		value = (*parent).*member;
+		value = content(parent);
 	}
 	string text() const {
-		return label + to_string(value);
+		return label + value;
 	}
 	void display() {
-		ofSetColor(0, 255, 0);
+		ofSetColor(MENU_COLOR3);
 		drawText(text(), 0, height());
 	}
 	double width() const {
@@ -915,6 +929,35 @@ public:
 	}
 	double height() const {
 		return textHeight(text());
+	}
+};
+glm::dvec2 pmp;
+class ButtonMenuElement : public MenuElement, public enable_shared_from_this<ButtonMenuElement> {
+public:
+	string label;
+	function<void(shared_ptr<GridElement>, shared_ptr<ButtonMenuElement>)> callback;
+	double buttonWidth;
+	ButtonMenuElement(string l, function<void(shared_ptr<GridElement>, shared_ptr<ButtonMenuElement>)> c, double w) : label(l), callback(c), buttonWidth(w) {}
+	void update(shared_ptr<GridElement> parent, glm::dvec2 mp) {
+		pmp = mp;
+		if (mousePressedOnLastFrame && mouse[0] && buttonBoundingBox().inside(mp)) {
+			callback(parent, shared_from_this());
+		}
+	}
+	ofRectangle buttonBoundingBox() const {
+		return ofRectangle(textWidth(label) + MENU_MARGIN, 0, buttonWidth, height());
+	}
+	void display() {
+		ofSetColor(MENU_COLOR3);
+		drawText(label, 0, height());
+		ofSetColor(MENU_COLOR2);
+		ofDrawRectangle(buttonBoundingBox());
+	}
+	double width() const {
+		return textWidth(label) + MENU_MARGIN + buttonWidth;
+	}
+	double height() const {
+		return textHeight(label);
 	}
 };
 class GridElement : public enable_shared_from_this<GridElement> {
@@ -964,7 +1007,6 @@ public:
 	void removeItem(int x, int y, int z);
 	void removeItem(glm::dvec3 v);
 	void displayMode1(double t);
-	bool mousePressedOnLastFrame = false;
 	void mousePressed(int x, int y, int button);
 	void displayMode2(int y);
 	void displayMode3();
@@ -1004,8 +1046,12 @@ GridElement::GridElement(string t, double m, double r, double f) {
 		//TODO:thrust
 		fluids = { {"metal",{1000,1000}} };
 	}
-	menu = { 
-		make_shared<LabelMenuElement>(LabelMenuElement("Mass:",& GridElement::mass))
+	int counter = 0;//you can't do this because local variable
+	menu = {
+		make_shared<LabelMenuElement>(LabelMenuElement("Front Face:",[](auto g) {return faceNames[g->frontFace]; })),
+		make_shared<ButtonMenuElement>(ButtonMenuElement("Click me",[&](auto g,auto b) {
+			b->label = to_string(++counter); 
+			},24))
 	};
 };
 glm::dvec3 GridElement::faceNormal(int face) {//returns ship coordinates
@@ -1093,21 +1139,20 @@ void GridElement::rotateRightFace() {
 	rightFace %= 2;
 }
 void GridElement::displayMenu() {
-	double margin = 4;
-	double w = 0, h = margin;
+	double w = 0, h = MENU_MARGIN;
 	for (auto& item : menu) {
-		w = max(w, item->width()) + margin * 2;
-		h += item->height() + margin;
+		w = max(w, item->width()) + MENU_MARGIN * 2;
+		h += item->height() + MENU_MARGIN;
 	}
-	ofSetColor(0, 0, 0);
+	ofSetColor(MENU_COLOR1);
 	ofDrawRectangle(0, 0, w, h);
-	double x = margin, y = margin;
+	double x = MENU_MARGIN, y = MENU_MARGIN;
 	glm::dvec2 mp = untransform2D(mousePos);
 	for (auto& item : menu) {
 		ofPushMatrix();
 		ofTranslate(x, y);
 		glm::dvec2 lmp = mp - glm::dvec2(x, y);
-		y += item->height() + margin;
+		y += item->height() + MENU_MARGIN;
 		item->update(shared_from_this(),lmp);
 		item->display();
 		ofPopMatrix();
@@ -1291,11 +1336,8 @@ void PhysicsGrid::displayMode1(double t) {
 	ofPopMatrix();
 	orbit.displayMode1(t);
 }
-void PhysicsGrid::mousePressed(int x, int y, int button) {
-	if (button == 2)mousePressedOnLastFrame = true;//can't do it rn,no matrix transform
-}
 void PhysicsGrid::displayMode2(int y) {
-	if (mousePressedOnLastFrame) selectedPart = nullptr;
+	if (mousePressedOnLastFrame && mouse[2]) selectedPart = nullptr;
 	for (auto& ptr : contents) {
 		glm::dvec3 pos = ptr.first;
 		if (round(pos.y) != y) continue;
@@ -1304,17 +1346,17 @@ void PhysicsGrid::displayMode2(int y) {
 		ofPushMatrix();
 		ofTranslate(glm::vec3(sPos));
 		ptr.second->displayMode2();
-		ofPopMatrix();
-		if (mousePressedOnLastFrame) {
+		if (mousePressedOnLastFrame&&mouse[2]) {
 			glm::dvec2 m = untransform2D(mousePos);
-			if (m.x > sPos.x && m.x<sPos.x + 16 && m.y>sPos.y && m.y < sPos.y + 16) {
+			ofDrawCircle(m, 1);
+			if (m.x > sPos.x && m.x < sPos.x + 16 && m.y > sPos.y && m.y < sPos.y + 16) {
 				selectedPart = ptr.second;
 				selectedPos = pos;
-				menuPos = m;
+				menuPos = m - glm::dvec2(sPos);
 			}
 		}
+		ofPopMatrix();
 	}
-	mousePressedOnLastFrame = false;
 	if (selectedPart != nullptr && round(selectedPos.y) == y) {
 		glm::dvec2 sPos(-selectedPos.z * 16, -selectedPos.x * 16);
 		ofFill();
