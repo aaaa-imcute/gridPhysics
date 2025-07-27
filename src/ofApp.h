@@ -10,9 +10,13 @@ unordered_map<int, bool> keys;
 unordered_map<int, bool> mouse;
 glm::dvec2 untransform2D(glm::dvec2 vec) {
 	ofRectangle viewport = ofGetCurrentViewport();
-	glm::vec3 windowCoords(vec.x, viewport.height - (vec.y - viewport.y), 0.0);
-	glm::vec3 center(ofGetWidth() / 2, ofGetHeight() / 2, 0);
-	windowCoords = center + 10 * (windowCoords - center);//magic number.stupid of...
+	glm::vec3 projected = glm::project(
+		glm::vec3(0, 0, 0), // or wherever you draw your object
+		ofGetCurrentMatrix(OF_MATRIX_MODELVIEW),
+		ofGetCurrentMatrix(OF_MATRIX_PROJECTION),
+		glm::vec4(viewport.x, viewport.y, viewport.width, viewport.height)
+	);
+	glm::vec3 windowCoords(vec.x, viewport.height - (vec.y - viewport.y), projected.z);
 	glm::dvec3 worldPos = glm::unProject(
 		windowCoords,
 		ofGetCurrentMatrix(OF_MATRIX_MODELVIEW),
