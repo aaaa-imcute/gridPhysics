@@ -1035,7 +1035,7 @@ class GridElement : public enable_shared_from_this<GridElement> {
 public:
 	GridElement(string t, double m, double r, double f);
 	string type;
-	double mass, COR, COF;//COF is kinetic friction,static friction is approximated by COF*1.25
+	double dryMass, COR, COF;//COF is kinetic friction,static friction is approximated by COF*1.25
 	int frontFace, topFace, rightFace;
 	glm::dvec3 faceNormal(int face);
 	glm::dvec3 front();
@@ -1053,6 +1053,7 @@ public:
 	unordered_map<string, double> fluidChanges;
 	double tankTransferRate();
 	optional<variant<MonoPropSpec, BiPropSpec>> engineData();
+	double mass();
 	void update(shared_ptr<PhysicsGrid> ship, glm::dvec3 pos, double t, double dt);
 	void integrate(double t, double dt);
 };
@@ -1101,7 +1102,7 @@ private:
 };
 GridElement::GridElement(string t, double m, double r, double f) {
 	type = t;
-	mass = m;//TODO:Adjust based on current fluid contents(in integrate())
+	dryMass = m;//TODO:Adjust based on current fluid contents(in integrate())
 	COR = r;
 	COF = f;
 	frontFace = 4;
@@ -1294,6 +1295,13 @@ optional<variant<MonoPropSpec, BiPropSpec>> GridElement::engineData() {
 	if (type == "solid-rocket-engine")return MonoPropSpec(3.5e6, 10, 0.15, 15, 19.6, "metal");
 	return nullopt;
 }
+double GridElement::mass() {
+	double m = dryMass;
+	for (auto& pair : fluids) {
+		m += pair.second.first;
+	}
+	return m;
+}
 void GridElement::update(shared_ptr<PhysicsGrid> ship, glm::dvec3 pos, double t, double dt) {
 	double rate = tankTransferRate();
 	if (rate != 0) {
@@ -1470,8 +1478,8 @@ void PhysicsGrid::updateGrid() {
 	COM = glm::dvec3(0, 0, 0);
 	for (auto& ptr : contents) {
 		if (ptr.second == nullptr)continue;
-		mass += ptr.second->mass;
-		COM += (ptr.first + glm::dvec3(0.5, 0.5, 0.5)) * ptr.second->mass;
+		mass += ptr.second->mass();
+		COM += (ptr.first + glm::dvec3(0.5, 0.5, 0.5)) * ptr.second->mass();
 	}
 	COM /= mass;
 	position += glm::rotate(angle, COM);
@@ -1488,7 +1496,7 @@ void PhysicsGrid::updateGrid() {
 			glm::vec3(-y * x, x * x + z * z, -y * z),  // Second row
 			glm::vec3(-z * x, -z * y, x * x + y * y)   // Third row
 		);
-		inertialTensor += (c + s) * ptr.second->mass;
+		inertialTensor += (c + s) * ptr.second->mass();
 	}
 	createAtlas();
 	mesh.clear();
