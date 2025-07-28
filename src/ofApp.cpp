@@ -6,7 +6,7 @@ void ofApp::setup(){
 	compute_legendre_coeff();
 	ofDisableBlendMode();
 	ofEnableAntiAliasing();
-	if (!font.load("cour.ttf", 12/FONT_SCALE, true, true, true, 0.0f, 96))throw "bad font";//todo:fix image quality issue(unclear text)
+	if (!font.load("cour.ttf", 12/FONT_SCALE, true, true, true, 0.0f, 96))throw "bad font";
 	sunLight = make_shared<ofLight>(ofLight());
 	sunLight->setPointLight();
 	sunLight->setSpecularColor(ofColor::white);
@@ -68,7 +68,7 @@ double remainingSimulation = 0.0;
 double totalTime = 0.0;
 void ofApp::update(){
 	dragMap();
-	if (sceneDisplayed != 2/* && keys[' ']*/) {
+	if (sceneDisplayed != 2) {
 		remainingSimulation += ofGetLastFrameTime();
 		for (; remainingSimulation > PHYSICS_DT; remainingSimulation -= PHYSICS_DT) {
 			p->updatePhysics(totalTime,PHYSICS_DT);
@@ -86,9 +86,6 @@ void ofApp::draw(){
 	mousePos=glm::vec2(ofGetMouseX(), ofGetMouseY());
 	if(sceneDisplayed == 1)camera1.update();
 	if(sceneDisplayed == 3)camera3.update();
-	if (keys['1'])sceneDisplayed = 1;
-	if (keys['2'])sceneDisplayed = 2;
-	if (keys['3'])sceneDisplayed = 3;
 	switch(sceneDisplayed){
 	case 1:
 		ofEnableLighting();
@@ -115,7 +112,6 @@ void ofApp::draw(){
 		//ofSetColor(255, 255, 255);
 		//ofDrawCircle(untransform2D(mousePos), 4.0 / mapScale);
 		ofPopMatrix();
-		drawText(to_string(pmp.x) + "," + to_string(pmp.y), 100, 100);
 		break;
 	case 3:
 		//ofEnableLighting();
@@ -160,12 +156,16 @@ void ofApp::draw(){
 		ofPopStyle();
 		break;
 	}
+	if (keys['1'] && !dontDetectKeys)sceneDisplayed = 1;
+	if (keys['2'] && !dontDetectKeys)sceneDisplayed = 2;
+	if (keys['3'] && !dontDetectKeys)sceneDisplayed = 3;
 	mousePressedOnLastFrame = false;
+	keyPressedOnLastFrame = 0;
 }
 
 void ofApp::keyPressed(int key){
 	keys[key] = true;
-	if (sceneDisplayed == 2) {
+	if (sceneDisplayed == 2 && !dontDetectKeys) {
 		if (selectedPart != nullptr && round(selectedPos.y) == dm2_layer) {
 			if (key == 'r')selectedPart->rotateFrontFace();
 			if (key == 't')selectedPart->rotateTopFace();
@@ -175,6 +175,7 @@ void ofApp::keyPressed(int key){
 		if (key == 'w')dm2_layer++;
 		if (key == 's')dm2_layer--;
 	}
+	keyPressedOnLastFrame = key;
 }
 
 void ofApp::keyReleased(int key){

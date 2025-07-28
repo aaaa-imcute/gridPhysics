@@ -27,6 +27,9 @@ glm::dvec2 untransform2D(glm::dvec2 vec) {
 }
 glm::dvec2 mousePos, pmousePos;
 bool mousePressedOnLastFrame = false;
+bool dontDragMap = false;
+int keyPressedOnLastFrame = 0;
+bool dontDetectKeys = false;
 ofTrueTypeFont font;
 class easyCam : public ofCamera {
 public:
@@ -757,6 +760,7 @@ constexpr double MENU_MARGIN = 4;
 const ofColor MENU_COLOR1 = ofColor(0, 0, 0);//background
 const ofColor MENU_COLOR2 = ofColor(255, 255, 255);//buttons etc
 const ofColor MENU_COLOR3 = ofColor(0, 255, 0);//text
+const ofColor MENU_COLOR4 = ofColor(0, 0, 255);//text on white background
 enum class ShipSituation {
 	LANDED,
 	SlIDING,
@@ -935,7 +939,6 @@ public:
 		return textHeight(text());
 	}
 };
-glm::dvec2 pmp;
 class ButtonMenuElement : public MenuElement, public enable_shared_from_this<ButtonMenuElement> {
 public:
 	string label;
@@ -943,8 +946,8 @@ public:
 	double buttonWidth;
 	ButtonMenuElement(string l, function<void(shared_ptr<GridElement>, shared_ptr<ButtonMenuElement>)> c, double w) : label(l), callback(c), buttonWidth(w) {}
 	void update(shared_ptr<GridElement> parent, glm::dvec2 mp) {
-		pmp = mp;
 		if (mousePressedOnLastFrame && mouse[0] && buttonBoundingBox().inside(mp)) {
+			dontDragMap = true;
 			callback(parent, shared_from_this());
 		}
 	}
@@ -962,6 +965,70 @@ public:
 	}
 	double height() const {
 		return textHeight(label);
+	}
+};
+class InputMenuElement : public MenuElement, public enable_shared_from_this<InputMenuElement> {
+public:
+	string label;
+	function<void(shared_ptr<GridElement>, shared_ptr<InputMenuElement>,string)> callback;
+	string input;
+	bool focused = false;
+	int pointer = 0;
+	InputMenuElement(string l, function<void(shared_ptr<GridElement>, shared_ptr<InputMenuElement>,string)> c) : label(l), callback(c) {}
+	void update(shared_ptr<GridElement> parent, glm::dvec2 mp) {
+		if (mousePressedOnLastFrame && mouse[0]) {
+			if (inputBoundingBox().inside(mp)) {
+				dontDragMap = true;
+				dontDetectKeys = true;
+				focused = true;
+				pointer = 0;
+			}
+			else if (focused) {
+				dontDragMap = false;
+				dontDetectKeys = false;
+				focused = false;
+			}
+		}
+		if (!focused) return;
+		if (keyPressedOnLastFrame == 0) return;
+		if (keyPressedOnLastFrame == OF_KEY_BACKSPACE) {
+			if (input.size() != 0 && pointer != 0) {
+				input.erase(--pointer, 1);
+			}
+		}
+		else if (keyPressedOnLastFrame == OF_KEY_LEFT) {
+			pointer--;
+		}
+		else if (keyPressedOnLastFrame == OF_KEY_RIGHT) {
+			pointer++;
+		}
+		else if (isprint(keyPressedOnLastFrame)) {
+			input.insert(pointer++, 1, keyPressedOnLastFrame);
+		}
+		pointer = max(pointer, 0);
+		pointer = min(pointer, (int)input.size());
+		callback(parent, shared_from_this(), input);
+	}
+	ofRectangle inputBoundingBox() const {
+		return ofRectangle(textWidth(label) + MENU_MARGIN, 0, max(textWidth(input), 2 * MENU_MARGIN), height());
+	}
+	void display() {
+		ofSetColor(MENU_COLOR3);
+		drawText(label, 0, height());
+		ofSetColor(MENU_COLOR2);
+		ofDrawRectangle(inputBoundingBox());
+		ofSetColor(MENU_COLOR4);
+		drawText(input, textWidth(label) + MENU_MARGIN, height());
+		if (focused) {
+			ofSetColor(0, 0, 0);
+			ofDrawRectangle(textWidth(label) + MENU_MARGIN + textWidth("A") * pointer, 0, 1, height());
+		}
+	}
+	double width() const {
+		return textWidth(label) + MENU_MARGIN + textWidth(input);
+	}
+	double height() const {
+		return max(textHeight(label), textHeight(input));
 	}
 };
 class GridElement : public enable_shared_from_this<GridElement> {
@@ -1053,9 +1120,11 @@ GridElement::GridElement(string t, double m, double r, double f) {
 	int counter = 0;//you can't do this because local variable
 	menu = {
 		make_shared<LabelMenuElement>(LabelMenuElement("Front Face:",[](auto g) {return faceNames[g->frontFace]; })),
-		make_shared<ButtonMenuElement>(ButtonMenuElement("Click me",[&](auto g,auto b) {
-			b->label = to_string(++counter); 
-			},24))
+		make_shared<InputMenuElement>(InputMenuElement("Click me",[&](auto g, auto b, string s) {
+			string test = s;
+			string test2 = test + s;
+			}
+		))
 	};
 };
 glm::dvec3 GridElement::faceNormal(int face) {//returns ship coordinates
@@ -1866,7 +1935,10 @@ void PhysicsGrid::updateInternal(double t, double dt) {
 int sceneDisplayed = 2;//0=instruments,1=map,2=craft part details,3=camera
 void dragMap() {
 	if (sceneDisplayed != 0 && sceneDisplayed != 2)return;
-	if (!mouse[0])return;
+	if (!mouse[0] || dontDragMap) {
+		dontDragMap = false;
+		return;
+	}
 	mapPos += (mousePos - pmousePos) / mapScale;
 }
 class ofApp : public ofBaseApp {
