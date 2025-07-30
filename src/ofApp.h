@@ -950,6 +950,9 @@ public:
 			dontDragMap = true;
 			callback(parent, shared_from_this());
 		}
+		else if(buttonBoundingBox().inside(mp)){
+			dontDragMap = false;
+		}
 	}
 	ofRectangle buttonBoundingBox() const {
 		return ofRectangle(textWidth(label) + MENU_MARGIN, 0, buttonWidth, height());
@@ -1031,6 +1034,84 @@ public:
 		return max(textHeight(label), textHeight(input));
 	}
 };
+class ProgressMenuElement : public MenuElement {
+public:
+	string label;
+	function<pair<double, double>(shared_ptr<GridElement>)> content;
+	pair<double, double> value;//so updates only happen when update() is called
+	ProgressMenuElement(string l, function<pair<double, double>(shared_ptr<GridElement>)> c) : label(l), content(c) {}
+	void update(shared_ptr<GridElement> parent, glm::dvec2 mp) {
+		value = content(parent);
+	}
+	ofRectangle progressBoundingBox() const {
+		return ofRectangle(textWidth(label) + MENU_MARGIN, 0, 256, height());
+	}
+	void display() {
+		ofSetColor(MENU_COLOR3);
+		drawText(label, 0, height());
+		ofSetColor(MENU_COLOR2);
+		ofDrawRectRounded(progressBoundingBox(), height() / 2);
+		ofSetColor(MENU_COLOR3);
+		ofDrawRectRounded(textWidth(label) + MENU_MARGIN, 0, 256.0 * value.first / value.second, height(), height() / 2);
+		ofSetColor(MENU_COLOR4);
+		string t = to_string(value.first) + "/" + to_string(value.second);
+		drawText(t, textWidth(label) + MENU_MARGIN + 128 - textWidth(t) / 2, height());
+	}
+	double width() const {
+		return textWidth(label) + MENU_MARGIN + 256;
+	}
+	double height() const {
+		return textHeight(label);
+	}
+};
+class SliderMenuElement : public MenuElement, public enable_shared_from_this<SliderMenuElement> {
+public:
+	string label;
+	function<pair<double, double>(shared_ptr<GridElement>, shared_ptr<SliderMenuElement>, double v)> callback;
+	pair<double, double> value;//so updates only happen when update() is called
+	bool focused = false;
+	SliderMenuElement(string l, function<pair<double, double>(shared_ptr<GridElement>, shared_ptr<SliderMenuElement>, double v)> c) : label(l), callback(c) {}
+	void update(shared_ptr<GridElement> parent, glm::dvec2 mp) {
+		if (progressBoundingBox().inside(mp)&&mouse[0]) {
+			focused = true;
+			dontDragMap = true;
+		}
+		if (focused) {
+			if (!mouse[0]) {
+				focused = false;
+				dontDragMap = false;
+			}
+			else {
+				double pos = (mp.x - progressBoundingBox().getX()) / 256.0;
+				pos = glm::clamp(pos, 0.0, 1.0);
+				double factor = pow(2, glm::round(log(mapScale))+2);
+				pos = glm::round(pos * factor) / factor;
+				value.first = value.second * pos;
+			}
+		}
+		value = callback(parent, shared_from_this(), value.first);
+	}
+	ofRectangle progressBoundingBox() const {
+		return ofRectangle(textWidth(label) + MENU_MARGIN, 0, 256, height());
+	}
+	void display() {
+		ofSetColor(MENU_COLOR3);
+		drawText(label, 0, height());
+		ofSetColor(MENU_COLOR2);
+		ofDrawRectRounded(progressBoundingBox(), height() / 2);
+		ofSetColor(MENU_COLOR3);
+		ofDrawRectRounded(textWidth(label) + MENU_MARGIN, 0, 256.0 * value.first / value.second, height(), height() / 2);
+		ofSetColor(MENU_COLOR4);
+		string t = to_string(value.first) + "/" + to_string(value.second);
+		drawText(t, textWidth(label) + MENU_MARGIN + 128 - textWidth(t) / 2, height());
+	}
+	double width() const {
+		return textWidth(label) + MENU_MARGIN + 256;
+	}
+	double height() const {
+		return textHeight(label);
+	}
+};
 class GridElement : public enable_shared_from_this<GridElement> {
 public:
 	GridElement(string t, double m, double r, double f);
@@ -1108,25 +1189,30 @@ GridElement::GridElement(string t, double m, double r, double f) {
 	frontFace = 4;
 	topFace = 2;
 	rightFace = 0;
-	if (type == "fire-tank") {
-		fluids = { {"fire",{1000,1000}} };
-	}
-	else if (type == "metal-tank") {
-		fluids = { {"metal",{1000,1000}} };
-	}
-	else if (type == "solid-rocket-engine") {
-		//TODO:thrust
-		fluids = { {"metal",{1000,1000}} };
-	}
-	int counter = 0;//you can't do this because local variable
 	menu = {
 		make_shared<LabelMenuElement>(LabelMenuElement("Front Face:",[](auto g) {return faceNames[g->frontFace]; })),
 		make_shared<InputMenuElement>(InputMenuElement("Click me",[&](auto g, auto b, string s) {
 			string test = s;
 			string test2 = test + s;
 			}
+		)),
+		make_shared<SliderMenuElement>(SliderMenuElement("Fraction",[&](auto g, auto s, double v) {
+			return make_pair(v,1000.0);
+			}
 		))
 	};
+	if (type == "fire-tank") {
+		fluids = { {"fire",{1000,1000}} };
+	}
+	else if (type == "metal-tank") {
+		fluids = { {"metal",{1000,1000}} };
+		menu.push_back(make_shared<ProgressMenuElement>(ProgressMenuElement("Metal", [&](auto g) {return g->fluids["metal"]; })));
+	}
+	else if (type == "solid-rocket-engine") {
+		//TODO:thrust
+		fluids = { {"metal",{1000,1000}} };
+		menu.push_back(make_shared<ProgressMenuElement>(ProgressMenuElement("Metal", [&](auto g) {return g->fluids["metal"]; })));
+	}
 };
 glm::dvec3 GridElement::faceNormal(int face) {//returns ship coordinates
 	switch (face) {
@@ -1943,10 +2029,7 @@ void PhysicsGrid::updateInternal(double t, double dt) {
 int sceneDisplayed = 2;//0=instruments,1=map,2=craft part details,3=camera
 void dragMap() {
 	if (sceneDisplayed != 0 && sceneDisplayed != 2)return;
-	if (!mouse[0] || dontDragMap) {
-		dontDragMap = false;
-		return;
-	}
+	if (!mouse[0] || dontDragMap)return;
 	mapPos += (mousePos - pmousePos) / mapScale;
 }
 class ofApp : public ofBaseApp {
