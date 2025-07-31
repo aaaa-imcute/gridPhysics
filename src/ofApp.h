@@ -815,28 +815,28 @@ glm::dvec3 corners_of_unit_cube[8] = {
 	{0.5,0.5,0.5}
 };
 struct MonoPropSpec {
-	double Esp;//chemical energy per kg
-	int f;//DOF of exhaust,if there are multiple types of exhaust give molar average
-	double Ae;//how big the bell is
-	double Ar;//if you look into the bell,how likely are you to see into the hole?
-	double maxR;//maximum injection rate
+	double Esp = 0;//chemical energy per kg
+	int f = 0;//DOF of exhaust,if there are multiple types of exhaust give molar average
+	double Ae = 0;//how big the bell is
+	double Ar = 0;//if you look into the bell,how likely are you to see into the hole?
+	double maxR = 0;//maximum injection rate
 	string R;
 };
 struct BiPropSpec {
-	int a;
-	int b;
-	int c;
-	double H;//aA+bB->cC+H
-	double Ma;//molar masses
-	double Mb;
-	double Mc;
-	int Fa;//DOFs
-	int Fb;
-	int Fc;
-	double Ae;
-	double Ar;
-	double maxX;//maximum injection rates
-	double maxY;
+	int a = 0;
+	int b = 0;
+	int c = 0;
+	double H = 0;//aA+bB->cC+H
+	double Ma = 0;//molar masses
+	double Mb = 0;
+	double Mc = 0;
+	int Fa = 0;//DOFs
+	int Fb = 0;
+	int Fc = 0;
+	double Ae = 0;
+	double Ar = 0;
+	double maxX = 0;//maximum injection rates
+	double maxY = 0;
 	string A;
 	string B;
 };
@@ -882,13 +882,13 @@ double calculateEjectionVelocityInner(double f, double Esp, double r, double Ar,
 	//area ratio either linearly or logarithmically increases isp depending on how incorrectly expanded the engine is
 }
 double calculateEjectionVelocity(MonoPropSpec spec, double Pa, double r) {
-	return calculateEjectionVelocityInner(spec.f, spec.Esp, r, spec.Ar, spec.Ae, Pa);
+	return calculateEjectionVelocityInner(spec.f, spec.Esp, r * spec.maxR, spec.Ar, spec.Ae, Pa);
 }
 double calculateEjectionVelocity(BiPropSpec spec, double Pa, double x, double y) {
 	double s = min(x / (spec.a * spec.Ma), y / (spec.b * spec.Mb));
 	//reaction stochiometricness=rc*spec.Mc/(x+y) (?)
-	double ra = x / spec.Ma - spec.a * s;
-	double rb = y / spec.Mb - spec.b * s;
+	double ra = x * spec.maxX / spec.Ma - spec.a * s;
+	double rb = y * spec.maxY / spec.Mb - spec.b * s;
 	double rc = spec.c * s;
 	double mols = ra + rb + rc;//linear to the reagent depleted.
 	//if the mols of product is greater than the OTHER reagent
@@ -902,7 +902,7 @@ double calculateEjectionVelocity(BiPropSpec spec, double Pa, double x, double y)
 	//m*M increases with the ratio of the non-depleted reagent to the depleted reagent
 	//effective energy density is proportional to the stochiometric energy density
 	//and inversely proportional to m*M
-	return calculateEjectionVelocityInner(f, spec.H / m / M, x + y, spec.Ar, spec.Ae, Pa);
+	return calculateEjectionVelocityInner(f, spec.H / m / M, x * spec.maxX + y * spec.maxY, spec.Ar, spec.Ae, Pa);
 }
 class MenuElement {
 public:
@@ -1084,7 +1084,7 @@ public:
 			else {
 				double pos = (mp.x - progressBoundingBox().getX()) / 256.0;
 				pos = glm::clamp(pos, 0.0, 1.0);
-				double factor = pow(2, glm::round(log(mapScale))+2);
+				double factor = pow(2, glm::round(log(mapScale)) + 1);
 				pos = glm::round(pos * factor) / factor;
 				value.first = value.second * pos;
 			}
@@ -1133,7 +1133,10 @@ public:
 	unordered_map<string, pair<double, double>> fluids;
 	unordered_map<string, double> fluidChanges;
 	double tankTransferRate();
-	optional<variant<MonoPropSpec, BiPropSpec>> engineData();
+	MonoPropSpec monopropEngineData();//std::variant is too troublesome for this
+	BiPropSpec bipropEngineData();
+	double throttleA = 0;
+	double throttleB = 0;
 	double mass();
 	void update(shared_ptr<PhysicsGrid> ship, glm::dvec3 pos, double t, double dt);
 	void integrate(double t, double dt);
@@ -1195,10 +1198,6 @@ GridElement::GridElement(string t, double m, double r, double f) {
 			string test = s;
 			string test2 = test + s;
 			}
-		)),
-		make_shared<SliderMenuElement>(SliderMenuElement("Fraction",[&](auto g, auto s, double v) {
-			return make_pair(v,1000.0);
-			}
 		))
 	};
 	if (type == "fire-tank") {
@@ -1212,6 +1211,15 @@ GridElement::GridElement(string t, double m, double r, double f) {
 		//TODO:thrust
 		fluids = { {"metal",{1000,1000}} };
 		menu.push_back(make_shared<ProgressMenuElement>(ProgressMenuElement("Metal", [&](auto g) {return g->fluids["metal"]; })));
+		menu.push_back(make_shared<SliderMenuElement>(SliderMenuElement("Injection rate", [&](auto g, auto s, double v) {
+			g->throttleA = v;
+			return make_pair(v, 1);
+			}
+		)));
+		menu.push_back(make_shared<LabelMenuElement>(LabelMenuElement("Isp:", [&](auto g) {
+			return to_string(calculateEjectionVelocity(g->monopropEngineData(), 0, g->throttleA));
+			}
+		)));
 	}
 };
 glm::dvec3 GridElement::faceNormal(int face) {//returns ship coordinates
@@ -1336,7 +1344,7 @@ double GridElement::tankTransferRate() {
 	if (type == "metal-tank")return 100;
 	return 0;
 }
-optional<variant<MonoPropSpec, BiPropSpec>> GridElement::engineData() {
+MonoPropSpec GridElement::monopropEngineData() {
 	//v=sqrt(2fcRT/M*(1-(pa/p0)^(1/fc)))+(Pe-Pa)/Ae/r
 	//p0=r/(An*sqrt(yM/(RT))*fa^fb)
 	//MeAe/An=(kfa)^fb
@@ -1358,6 +1366,27 @@ optional<variant<MonoPropSpec, BiPropSpec>> GridElement::engineData() {
 	//needs:m,H,M,f,Ae,An,maxR
 	//needs r and Pa from elsewhere
 
+	//this is more like a sugar/KNO3 rocket but i'm still going to stick to the elemental thing
+	//and call it metal.also the nozzle/throat sizes are dubious and come from chatgpt's janky math.
+	//although i made it have about the right amount of expansion at atmospheric pressure
+	//1707 @ 101.325kPa
+	//2482 @ vacuum
+	if (type == "solid-rocket-engine")return MonoPropSpec(3.5e6, 10, 0.15, 15, 19.6, "metal");
+	return MonoPropSpec();
+}
+BiPropSpec GridElement::bipropEngineData() {
+	//v=sqrt(2fcRT/M*(1-(pa/p0)^(1/fc)))+(Pe-Pa)/Ae/r
+	//p0=r/(An*sqrt(yM/(RT))*fa^fb)
+	//MeAe/An=(kfa)^fb
+	//k=1+fdMe^2
+	//Pe=P0*k^-fc
+	//y=1+2/f
+	//fa=f/(f+1)
+	//fb=(f+1)/2
+	//fc=(f+2)/2
+	//fd=1/f
+	//T=H/(Rfcm)->RT/M=H/m*(fcM)
+
 	//for bipropellant engines:
 	//if one mol of reaction needs a mol of A and b mol of B
 	//producing c mol of exhaust,and actually
@@ -1372,14 +1401,7 @@ optional<variant<MonoPropSpec, BiPropSpec>> GridElement::engineData() {
 	//M=(ra*Ma+rb*Mb+rc*Mc)/(ra+rb+rc)
 	//needs:a,b,c,H,Ma,Mb,Mc,Fa,Fb,Fc,Ae,An,maxX,maxY
 	//needs x,y,and Pa from somewhere else(how do we let the user control the fuel ratio?)
-
-	//this is more like a sugar/KNO3 rocket but i'm still going to stick to the elemental thing
-	//and call it metal.also the nozzle/throat sizes are dubious and come from chatgpt's janky math.
-	//although i made it have about the right amount of expansion at atmospheric pressure
-	//1707 @ 101.325kPa
-	//2482 @ vacuum
-	if (type == "solid-rocket-engine")return MonoPropSpec(3.5e6, 10, 0.15, 15, 19.6, "metal");
-	return nullopt;
+	return BiPropSpec();
 }
 double GridElement::mass() {
 	double m = dryMass;
@@ -1410,42 +1432,39 @@ void GridElement::update(shared_ptr<PhysicsGrid> ship, glm::dvec3 pos, double t,
 		}
 		return;
 	}
-	auto data = engineData();
-	if (data) {
+	auto specA = monopropEngineData();
+	if (specA.maxR) {
 		shared_ptr<GridElement> next = ship->getItem(pos + front());
 		if (next != nullptr) return;//oops,obstructed
 		//TODO:better obstruction check
 		//(check for all blocks in a cone?and the angle is related to how much the atmosphere harms the isp?)
-		double Pa=0;//TODO
-		glm::dvec3 thrust;
-		visit(
-			[&](const auto& spec) {
-				using T = std::decay_t<decltype(spec)>;
-				//TODO:differ injection rate from maximum injection rate
-				if constexpr (std::is_same_v<T, MonoPropSpec>) {
-					double r = spec.maxR;
-					pair<double, double> pair = fluids[spec.R];
-					double fuel = pair.first;
-					double delta = min(fuel, r * dt);
-					thrust = front() * delta * calculateEjectionVelocity(spec, Pa, r);
-					fluidChanges[spec.R] -= delta;
-				}
-				else if constexpr (std::is_same_v<T, BiPropSpec>) {
-					double x = spec.maxX;
-					double y = spec.maxY;
-					pair<double, double> pairA = fluids[spec.A];
-					pair<double, double> pairB = fluids[spec.B];
-					double A = pairA.first;
-					double B = pairB.first;
-					double deltaA = min(A, x * dt);
-					double deltaB = min(B, y * dt);
-					double delta = deltaA + deltaB;
-					thrust = front() * delta * calculateEjectionVelocity(spec, Pa, x, y);
-					fluidChanges[spec.A] -= deltaA;
-					fluidChanges[spec.B] -= deltaB;
-				}
-			}, *data
-		);
+		double Pa = 0;//TODO
+		double r = throttleA;
+		pair<double, double> pair = fluids[specA.R];
+		double fuel = pair.first;
+		double delta = min(fuel, specA.maxR * r * dt);
+		glm::dvec3 thrust = front() * delta * calculateEjectionVelocity(specA, Pa, r);
+		fluidChanges[specA.R] -= delta;
+	}
+	auto specB = bipropEngineData();
+	if (specB.maxX) {
+		shared_ptr<GridElement> next = ship->getItem(pos + front());
+		if (next != nullptr) return;//oops,obstructed
+		//TODO:better obstruction check
+		//(check for all blocks in a cone?and the angle is related to how much the atmosphere harms the isp?)
+		double Pa = 0;//TODO
+		double x = specB.maxX * throttleA;
+		double y = specB.maxY * throttleB;
+		pair<double, double> pairA = fluids[specB.A];
+		pair<double, double> pairB = fluids[specB.B];
+		double A = pairA.first;
+		double B = pairB.first;
+		double deltaA = min(A, x * dt);
+		double deltaB = min(B, y * dt);
+		double delta = deltaA + deltaB;
+		glm::dvec3 thrust = front() * delta * calculateEjectionVelocity(specB, Pa, x, y);
+		fluidChanges[specB.A] -= deltaA;
+		fluidChanges[specB.B] -= deltaB;
 	}
 }
 void GridElement::integrate(double t, double dt) {
