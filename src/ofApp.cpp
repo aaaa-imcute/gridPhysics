@@ -30,8 +30,9 @@ void ofApp::setup(){
 	GridElement t1("metal-tank", 1000, 0.7, 0.15);
 	GridElement t2("metal-tank", 1000, 0.7, 0.15);
 	GridElement t3("solid-rocket-engine", 1000, 0.7, 0.15);
-	PhysicsGrid p1(make_shared<GridElement>(t1), { 574134.9,0,0 }, { 0,0,10.0 }, planets[0], 0);
+	PhysicsGrid p1({ 574134.9,0,0 }, { 0,0,10.0 }, planets[0], 0);
 	p = make_shared<PhysicsGrid>(p1);
+	p->setItem(make_shared<GridElement>(t1), 0, 0, 0);
 	p->setItem(make_shared<GridElement>(t2), 0, 1, 0);
 	p->setItem(make_shared<GridElement>(t3), 0, -1, 0);
 	p->getItem(0, -1, 0)->rotateFrontFace();

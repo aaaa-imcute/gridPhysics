@@ -400,23 +400,27 @@ public:
 };
 class Planet;
 class OrbitalElements;
+constexpr double ATMO_TOL = 0.001;
 class Planet {
 public:
 	shared_ptr<OrbitalElements> o;
 	double gravity;//m^3/s^2
 	double radius;
+	pair<double, double> atmos;//sea level,scale height(unit m,"how much height does it take for pressure to drop e times")
 	function<ofColor(double)> color;
 	string name;
 	Terrain terrain;
 	of3dPrimitive brush;
 	ofMesh mesh;
-	Planet(string n, double g, double r);
-	Planet(string n, double g, double r, shared_ptr<Planet> p1, double a1, double e1, double i1, double o1, double w1, double v1);
+	Planet(string n, double g, double r, double p0, double ph);
+	Planet(string n, double g, double r, double p0, double ph, shared_ptr<OrbitalElements> o1);
 	glm::dvec3 pos(double t);
 	glm::dvec3 vel(double t);
 	glm::dvec3 apos(double t);
 	glm::dvec3 avel(double t);
 	double SOI();
+	double atmoPressure(double h);
+	double atmoHeight();
 	void displayMode1(double t, int planetI);
 	void displayMode3(glm::dvec3 shipPos, int planetI);
 };
@@ -625,7 +629,7 @@ public:
 	}
 };
 vector<shared_ptr<Planet>> planets = {
-	make_shared<Planet>(Planet("Kerbin",3.5316e12,600000))
+	make_shared<Planet>(Planet("Kerbin",3.5316e12,600000,101325,70000/log(101325/ATMO_TOL)))
 };
 void createPlanetAtlas() {
 	if (planetAtlasReady)return;
@@ -648,16 +652,18 @@ void createPlanetAtlas() {
 	}
 	planetAtlas.end();
 }
-Planet::Planet(string n, double g, double r) {
+Planet::Planet(string n, double g, double r, double p0, double ph) {
 	name = n;
 	gravity = g;
 	radius = r;
+	atmos = make_pair(p0, ph);
 }
-Planet::Planet(string n, double g, double r, shared_ptr<Planet> p1, double a1, double e1, double i1, double o1, double w1, double v1) {
+Planet::Planet(string n, double g, double r, double p0, double ph, shared_ptr<OrbitalElements> o1) {
 	name = n;
 	gravity = g;
 	radius = r;
-	o = make_shared<OrbitalElements>(OrbitalElements(p1, a1, e1, i1, o1, w1, v1));
+	atmos = make_pair(p0, ph);
+	o = o1;
 };
 glm::dvec3 Planet::pos(double t) {
 	if (o == nullptr)return glm::dvec3(0, 0, 0);
@@ -679,6 +685,15 @@ double Planet::SOI() {
 	if (o == nullptr)return std::numeric_limits<double>::infinity();
 	return o->a * pow(gravity / o->p->gravity, 0.4);
 };
+double Planet::atmoPressure(double h) {
+	//with a linear temperature gradient(assumed) atmospheric pressure is always an exponential of this form.
+	if (h <= 0)return atmos.first;//prevent pressure from being a lot
+	return atmos.first * exp(-h / atmos.second);
+}
+double Planet::atmoHeight() {
+	//remember this is relative to sea level not the center of the planet
+	return -atmos.second * log(ATMO_TOL / atmos.first);
+}
 void Planet::displayMode1(double t, int planetI) {
 	glm::dvec3 p = (apos(t) - orbitPos) * orbitScale;
 	ofPushMatrix();
@@ -868,7 +883,7 @@ double calculateEjectionVelocityInner(double f, double Esp, double r, double Ar,
 	double Ve = pow(Tr, fc) / (sqrt(y * fc / Esp) * pow(fa, fb));//pressure at exit=Ve*Ar/Ae*r
 	//proportional to sqrt(Esp) and something about ar
 	//"velocity the pressure would accelerate the mass to at throat if it was at exit pressure" yeah that's weird
-	return sqrt(2 * Esp * (1 - Tr)) + Ve * Ar - Pa * Ae / r;
+	return max(0.0,sqrt(2 * Esp * (1 - Tr)) + Ve * Ar - Pa * Ae / r);//clamp isp so it doesn't go negative(engine no longer works at all)
 	//first term proportional to sqrt(Esp) and something about ar
 	//second term proportional to sqrt(Esp) and Ar/something about ar
 	//(doesn't seem right but remember real rocket engines don't have a fixed mass flow rate and get choked)
@@ -1138,8 +1153,9 @@ public:
 	double throttleA = 0;
 	double throttleB = 0;
 	double mass();
-	void update(shared_ptr<PhysicsGrid> ship, glm::dvec3 pos, double t, double dt);
+	void update(glm::dvec3 pos, double t, double dt);
 	void integrate(double t, double dt);
+	shared_ptr<PhysicsGrid> parent;
 };
 class PhysicsGrid : public enable_shared_from_this<PhysicsGrid> {
 	//stupid c++ requiring me to declare such a large class
@@ -1155,7 +1171,7 @@ public:
 	ShipSituation situ = ShipSituation::FLYING;
 	vector<pair<glm::dvec3, double>> contacts;//local position/friction coefficient
 	//remember after each state switch justify that the subsequent code does handle the state again
-	PhysicsGrid(shared_ptr<GridElement> root, glm::dvec3 p, glm::dvec3 v, shared_ptr<Planet> planet, double t);
+	PhysicsGrid(glm::dvec3 p, glm::dvec3 v, shared_ptr<Planet> planet, double t);
 	shared_ptr<GridElement> getItem(int x, int y, int z);
 	shared_ptr<GridElement> getItem(glm::dvec3 index);
 	shared_ptr<GridElement> setItem(shared_ptr<GridElement> e, int x, int y, int z);
@@ -1192,14 +1208,7 @@ GridElement::GridElement(string t, double m, double r, double f) {
 	frontFace = 4;
 	topFace = 2;
 	rightFace = 0;
-	menu = {
-		make_shared<LabelMenuElement>(LabelMenuElement("Front Face:",[](auto g) {return faceNames[g->frontFace]; })),
-		make_shared<InputMenuElement>(InputMenuElement("Click me",[&](auto g, auto b, string s) {
-			string test = s;
-			string test2 = test + s;
-			}
-		))
-	};
+	menu = {};
 	if (type == "fire-tank") {
 		fluids = { {"fire",{1000,1000}} };
 	}
@@ -1217,7 +1226,9 @@ GridElement::GridElement(string t, double m, double r, double f) {
 			}
 		)));
 		menu.push_back(make_shared<LabelMenuElement>(LabelMenuElement("Isp:", [&](auto g) {
-			return to_string(calculateEjectionVelocity(g->monopropEngineData(), 0, g->throttleA));
+			double h = glm::length(g->parent->position) - g->parent->soi->radius;
+			double Pa = (h > g->parent->soi->atmoHeight()) ? 0 : g->parent->soi->atmoPressure(h);
+			return to_string(calculateEjectionVelocity(g->monopropEngineData(), Pa, g->throttleA));
 			}
 		)));
 	}
@@ -1410,10 +1421,10 @@ double GridElement::mass() {
 	}
 	return m;
 }
-void GridElement::update(shared_ptr<PhysicsGrid> ship, glm::dvec3 pos, double t, double dt) {
+void GridElement::update(glm::dvec3 pos, double t, double dt) {
 	double rate = tankTransferRate();
 	if (rate != 0) {
-		shared_ptr<GridElement> next = ship->getItem(pos + front());
+		shared_ptr<GridElement> next = parent->getItem(pos + front());
 		if (next == nullptr || type == "metal-tank" &&
 			(front() != next->front() || next->type != "metal-tank" && next->type != "solid-rocket-engine")) return;
 		//TODO:test solid fuel transfer stuff
@@ -1432,13 +1443,14 @@ void GridElement::update(shared_ptr<PhysicsGrid> ship, glm::dvec3 pos, double t,
 		}
 		return;
 	}
+	double h = glm::length(parent->position) - parent->soi->radius;
+	double Pa = (h > parent->soi->atmoHeight()) ? 0 : parent->soi->atmoPressure(h);
 	auto specA = monopropEngineData();
 	if (specA.maxR) {
-		shared_ptr<GridElement> next = ship->getItem(pos + front());
+		shared_ptr<GridElement> next = parent->getItem(pos + front());
 		if (next != nullptr) return;//oops,obstructed
 		//TODO:better obstruction check
 		//(check for all blocks in a cone?and the angle is related to how much the atmosphere harms the isp?)
-		double Pa = 0;//TODO
 		double r = throttleA;
 		pair<double, double> pair = fluids[specA.R];
 		double fuel = pair.first;
@@ -1448,11 +1460,10 @@ void GridElement::update(shared_ptr<PhysicsGrid> ship, glm::dvec3 pos, double t,
 	}
 	auto specB = bipropEngineData();
 	if (specB.maxX) {
-		shared_ptr<GridElement> next = ship->getItem(pos + front());
+		shared_ptr<GridElement> next = parent->getItem(pos + front());
 		if (next != nullptr) return;//oops,obstructed
 		//TODO:better obstruction check
 		//(check for all blocks in a cone?and the angle is related to how much the atmosphere harms the isp?)
-		double Pa = 0;//TODO
 		double x = specB.maxX * throttleA;
 		double y = specB.maxY * throttleB;
 		pair<double, double> pairA = fluids[specB.A];
@@ -1475,7 +1486,7 @@ void GridElement::integrate(double t, double dt) {
 	}
 	fluidChanges.clear();
 }
-PhysicsGrid::PhysicsGrid(shared_ptr<GridElement> root, glm::dvec3 p, glm::dvec3 v, shared_ptr<Planet> planet, double t)
+PhysicsGrid::PhysicsGrid(glm::dvec3 p, glm::dvec3 v, shared_ptr<Planet> planet, double t)
 	:orbit(planet, p, v, t) {
 	//soi = planets[0];//assuming this is the one holding the global frame of reference
 	//if (soi->o != nullptr)throw "hey wrong order of planets";
@@ -1485,7 +1496,6 @@ PhysicsGrid::PhysicsGrid(shared_ptr<GridElement> root, glm::dvec3 p, glm::dvec3 
 	accel = { 0,0,0 };
 	avel = { 0,0,0 };
 	angle = { 1,0,0,0 };
-	setItem(root, 0, 0, 0);
 	brush = { mesh };
 	updateGrid();
 }
@@ -1500,6 +1510,7 @@ shared_ptr<GridElement> PhysicsGrid::setItem(shared_ptr<GridElement> e, int x, i
 	return setItem(e, glm::dvec3(x, y, z));
 }
 shared_ptr<GridElement> PhysicsGrid::setItem(shared_ptr<GridElement> e, glm::dvec3 index) {
+	e->parent = shared_from_this();
 	contents[index] = e;
 	updateGrid();
 	return e;
@@ -1508,6 +1519,7 @@ void PhysicsGrid::removeItem(int x, int y, int z) {
 	removeItem({ (float)x,(float)y,(float)z });
 }
 void PhysicsGrid::removeItem(glm::dvec3 v) {
+	getItem(v)->parent = nullptr;
 	contents.erase(v);
 	updateGrid();
 }
@@ -1576,18 +1588,23 @@ void PhysicsGrid::displayMode3() {
 	ofPopMatrix();
 }
 void PhysicsGrid::updateGrid() {
-	if (contents.size() == 0)throw "empty ship";
+	bool emptyShip = contents.size() == 0;
 	mass = 0;
-	position -= glm::rotate(angle, COM);//so that the positions of the old blocks do not change after editing
-	//need testing tho
-	COM = glm::dvec3(0, 0, 0);
-	for (auto& ptr : contents) {
-		if (ptr.second == nullptr)continue;
-		mass += ptr.second->mass();
-		COM += (ptr.first + glm::dvec3(0.5, 0.5, 0.5)) * ptr.second->mass();
+	if (emptyShip) {
+		COM = glm::dvec3(0, 0, 0);
 	}
-	COM /= mass;
-	position += glm::rotate(angle, COM);
+	else {
+		position -= glm::rotate(angle, COM);//so that the positions of the old blocks do not change after editing
+		//need testing tho
+		COM = glm::dvec3(0, 0, 0);
+		for (auto& ptr : contents) {
+			if (ptr.second == nullptr)continue;
+			mass += ptr.second->mass();
+			COM += (ptr.first + glm::dvec3(0.5, 0.5, 0.5)) * ptr.second->mass();
+		}
+		COM /= mass;
+		position += glm::rotate(angle, COM);
+	}
 	inertialTensor = glm::dmat3(0.0);
 	for (auto& ptr : contents) {
 		if (ptr.second == nullptr)continue;
@@ -2037,7 +2054,7 @@ double PhysicsGrid::totalEnergy() {
 void PhysicsGrid::updateInternal(double t, double dt) {
 	for (auto& ptr : contents) {
 		if (ptr.second == nullptr)continue;
-		ptr.second->update(shared_from_this(), ptr.first, t, dt);
+		ptr.second->update(ptr.first, t, dt);
 	}
 	for (auto& ptr : contents) {
 		if (ptr.second == nullptr)continue;
