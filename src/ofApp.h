@@ -1152,6 +1152,7 @@ public:
 	BiPropSpec bipropEngineData();
 	double throttleA = 0;
 	double throttleB = 0;
+	glm::dvec3 thrust;
 	double mass();
 	void update(glm::dvec3 pos, double t, double dt);
 	void integrate(double t, double dt);
@@ -1215,6 +1216,12 @@ GridElement::GridElement(string t, double m, double r, double f) {
 	else if (type == "metal-tank") {
 		fluids = { {"metal",{1000,1000}} };
 		menu.push_back(make_shared<ProgressMenuElement>(ProgressMenuElement("Metal", [&](auto g) {return g->fluids["metal"]; })));
+		throttleA = 1;
+		/*menu.push_back(make_shared<SliderMenuElement>(SliderMenuElement("Injection rate", [&](auto g, auto s, double v) {
+			g->throttleA = v;
+			return make_pair(v, 1);
+			}
+		)));*///having flow rate control here is unrealistic
 	}
 	else if (type == "solid-rocket-engine") {
 		//TODO:thrust
@@ -1351,8 +1358,8 @@ void GridElement::displayMode2() {
 	ofPopMatrix();
 }
 double GridElement::tankTransferRate() {
-	if (type == "fire-tank")return 100;
-	if (type == "metal-tank")return 100;
+	if (type == "fire-tank")return 1000;
+	if (type == "metal-tank")return 1000;
 	return 0;
 }
 MonoPropSpec GridElement::monopropEngineData() {
@@ -1382,7 +1389,7 @@ MonoPropSpec GridElement::monopropEngineData() {
 	//although i made it have about the right amount of expansion at atmospheric pressure
 	//1707 @ 101.325kPa
 	//2482 @ vacuum
-	if (type == "solid-rocket-engine")return MonoPropSpec(3.5e6, 10, 0.15, 15, 19.6, "metal");
+	if (type == "solid-rocket-engine")return MonoPropSpec(3.5e6, 10, 0.15, 15, 196, "metal");
 	return MonoPropSpec();
 }
 BiPropSpec GridElement::bipropEngineData() {
@@ -1431,7 +1438,7 @@ void GridElement::update(glm::dvec3 pos, double t, double dt) {
 		for (auto& pair : fluids) {
 			auto target = next->fluids.find(pair.first);
 			if (target == next->fluids.end())continue;
-			double delta = min(rate * dt, pair.second.first);
+			double delta = min(rate * throttleA * dt, pair.second.first);
 			delta = min(delta, target->second.second - target->second.first);
 			delta = max(0.0, delta);//just in case
 			next->fluidChanges[pair.first] += delta;
@@ -1446,6 +1453,7 @@ void GridElement::update(glm::dvec3 pos, double t, double dt) {
 	double h = glm::length(parent->position) - parent->soi->radius;
 	double Pa = (h > parent->soi->atmoHeight()) ? 0 : parent->soi->atmoPressure(h);
 	auto specA = monopropEngineData();
+	auto specB = bipropEngineData();
 	if (specA.maxR) {
 		shared_ptr<GridElement> next = parent->getItem(pos + front());
 		if (next != nullptr) return;//oops,obstructed
@@ -1455,11 +1463,10 @@ void GridElement::update(glm::dvec3 pos, double t, double dt) {
 		pair<double, double> pair = fluids[specA.R];
 		double fuel = pair.first;
 		double delta = min(fuel, specA.maxR * r * dt);
-		glm::dvec3 thrust = front() * delta * calculateEjectionVelocity(specA, Pa, r);
+		thrust = -front() * delta * calculateEjectionVelocity(specA, Pa, r);
 		fluidChanges[specA.R] -= delta;
 	}
-	auto specB = bipropEngineData();
-	if (specB.maxX) {
+	else if (specB.maxX) {
 		shared_ptr<GridElement> next = parent->getItem(pos + front());
 		if (next != nullptr) return;//oops,obstructed
 		//TODO:better obstruction check
@@ -1473,9 +1480,12 @@ void GridElement::update(glm::dvec3 pos, double t, double dt) {
 		double deltaA = min(A, x * dt);
 		double deltaB = min(B, y * dt);
 		double delta = deltaA + deltaB;
-		glm::dvec3 thrust = front() * delta * calculateEjectionVelocity(specB, Pa, x, y);
+		thrust = -front() * delta * calculateEjectionVelocity(specB, Pa, x, y);
 		fluidChanges[specB.A] -= deltaA;
 		fluidChanges[specB.B] -= deltaB;
+	}
+	else {
+		thrust = glm::dvec3(0, 0, 0);
 	}
 }
 void GridElement::integrate(double t, double dt) {
@@ -1932,6 +1942,10 @@ void PhysicsGrid::integrate(double t, double dt, glm::dvec3 force, glm::dvec3 to
 pair<glm::dvec3, glm::dvec3> PhysicsGrid::calculateLoads(double t, double dt) {
 	glm::dvec3 force, torque;
 	force += position * (-mass * soi->gravity / pow(glm::length(position), 3));//gravity
+	for (auto& ptr : contents) {
+		force += angle * ptr.second->thrust;
+		torque += glm::cross(ptr.first, ptr.second->thrust);
+	}
 	return { force,torque };
 }
 double PhysicsGrid::checkCollision(double maxDT, glm::dvec3& ret_position, glm::dvec3& contact_normal, shared_ptr<GridElement>& part) {
