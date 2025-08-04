@@ -29,8 +29,10 @@ void ofApp::setup(){
 	//TODO:find out why
 	GridElement t1("metal-tank", 1000, 0.7, 0.15);
 	GridElement t2("metal-tank", 1000, 0.7, 0.15);
+	t1.fluids["metal"].first = 0;
+	t2.fluids["metal"].first = 0;
 	GridElement t3("solid-rocket-engine", 1000, 0.7, 0.15);
-	PhysicsGrid p1({ 574134.9,0,0 }, { 0,0,10.0 }, planets[0], 0);
+	PhysicsGrid p1({ 574135,0,0 }, { 0,0,0 }, planets[0], 0);
 	p = make_shared<PhysicsGrid>(p1);
 	p->setItem(make_shared<GridElement>(t1), 0, 0, 0);
 	p->setItem(make_shared<GridElement>(t2), 0, 1, 0);
@@ -51,6 +53,7 @@ void ofApp::setup(){
 	p->getItem(0, 1, 0)->rotateFrontFace();
 	p->getItem(0, 1, 0)->rotateFrontFace();
 	p->updateGrid();
+	p->angle = { sqrt(2) / 2,0,0,-sqrt(2) / 2 };
 	initialEnergy = p->totalEnergy();
 	/*auto spec = p->getItem(0, -1, 0)->engineData();
 	visit(

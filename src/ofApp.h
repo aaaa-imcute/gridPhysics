@@ -1185,7 +1185,7 @@ public:
 	void displayMode3();
 	void updateGrid();
 	glm::dvec3 calculateContacts(glm::dvec3 sn);
-	glm::dvec3 computeNFDistribution(glm::dvec3 kh, glm::dvec3 force, glm::dvec3 torque);
+	glm::dvec3 computeNFDistribution(glm::dvec3 kh, glm::dvec3 force, glm::dvec3 torque, glm::dvec3& ih, glm::dvec3& jh);
 	void updatePhysics(double t, double dt);
 	void integrate(double t, double dt, glm::dvec3 force, glm::dvec3 torque);
 	pair<glm::dvec3, glm::dvec3> calculateLoads(double t, double dt);
@@ -1387,9 +1387,7 @@ MonoPropSpec GridElement::monopropEngineData() {
 	//this is more like a sugar/KNO3 rocket but i'm still going to stick to the elemental thing
 	//and call it metal.also the nozzle/throat sizes are dubious and come from chatgpt's janky math.
 	//although i made it have about the right amount of expansion at atmospheric pressure
-	//1707 @ 101.325kPa
-	//2482 @ vacuum
-	if (type == "solid-rocket-engine")return MonoPropSpec(3.5e6, 10, 0.15, 15, 196, "metal");
+	if (type == "solid-rocket-engine")return MonoPropSpec(3.5e6, 10, 0.15, 15, 30, "metal");
 	return MonoPropSpec();
 }
 BiPropSpec GridElement::bipropEngineData() {
@@ -1462,9 +1460,9 @@ void GridElement::update(glm::dvec3 pos, double t, double dt) {
 		double r = throttleA;
 		pair<double, double> pair = fluids[specA.R];
 		double fuel = pair.first;
-		double delta = min(fuel, specA.maxR * r * dt);
+		double delta = min(fuel / dt, specA.maxR * r);
 		thrust = -front() * delta * calculateEjectionVelocity(specA, Pa, r);
-		fluidChanges[specA.R] -= delta;
+		fluidChanges[specA.R] -= delta * dt;
 	}
 	else if (specB.maxX) {
 		shared_ptr<GridElement> next = parent->getItem(pos + front());
@@ -1477,12 +1475,12 @@ void GridElement::update(glm::dvec3 pos, double t, double dt) {
 		pair<double, double> pairB = fluids[specB.B];
 		double A = pairA.first;
 		double B = pairB.first;
-		double deltaA = min(A, x * dt);
-		double deltaB = min(B, y * dt);
+		double deltaA = min(A / dt, x);
+		double deltaB = min(B / dt, y);
 		double delta = deltaA + deltaB;
 		thrust = -front() * delta * calculateEjectionVelocity(specB, Pa, x, y);
-		fluidChanges[specB.A] -= deltaA;
-		fluidChanges[specB.B] -= deltaB;
+		fluidChanges[specB.A] -= deltaA * dt;
+		fluidChanges[specB.B] -= deltaB * dt;
 	}
 	else {
 		thrust = glm::dvec3(0, 0, 0);
@@ -1725,7 +1723,7 @@ glm::dvec3 PhysicsGrid::calculateContacts(glm::dvec3 sn) {
 	return axis;
 }
 vector<pair<glm::dvec3, glm::dvec3>> arrows;
-glm::dvec3 PhysicsGrid::computeNFDistribution(glm::dvec3 kh, glm::dvec3 force, glm::dvec3 torque) {
+glm::dvec3 PhysicsGrid::computeNFDistribution(glm::dvec3 kh, glm::dvec3 force, glm::dvec3 torque,glm::dvec3& ih, glm::dvec3& jh) {
 	//force torque and normal(kh) must be local,i.e probably glm::inverse(angle)*force
 	//output:{a,b,c}
 	//also kh points into the planet i think?
@@ -1737,7 +1735,6 @@ glm::dvec3 PhysicsGrid::computeNFDistribution(glm::dvec3 kh, glm::dvec3 force, g
 	//sum(i=>f(i)*x[i])=torque.y => a*sum(i=>x[i]*x[i])+b*sum(i=>y[i]*x[i])+c=torque.y
 	//sum(i=>f(i)*y[i])=-torque.x => a*sum(i=>x[i]*y[i])+b*sum(i=>y[i]*y[i])+c=-torque.x
 	//we have three linear equations with three variables,which we can solve
-	glm::dvec3 ih, jh;
 	make_orthonormal_basis(kh, ih, jh);
 	double tx = glm::dot(torque, jh);   // torque around ih
 	double ty = -glm::dot(torque, ih);  // torque around jh
@@ -1787,17 +1784,18 @@ void PhysicsGrid::updatePhysics(double t, double dt) {
 		orbit.set(position, velocity, t);
 	}
 	glm::dvec3 temp;
-	glm::dvec3 sn = soi->terrain.getSurfaceNormal(position);
-	glm::dvec3 lsn = glm::inverse(angle) * sn;
-	glm::dvec3 nvel = sn * glm::dot(sn, velocity);
-	glm::dvec3 tvel = velocity - nvel;
-	glm::dvec3 axis = calculateContacts(sn);
+	glm::dvec3 sn = soi->terrain.getSurfaceNormal(position);//wf
+	glm::dvec3 lsn = glm::inverse(angle) * sn;//lf
+	glm::dvec3 nvel = sn * glm::dot(sn, velocity);//wf
+	glm::dvec3 tvel = velocity - nvel;//wf
+	glm::dvec3 axis = calculateContacts(sn);//lf
 	if (situ == ShipSituation::LANDED) {
-		auto [force, torque] = calculateLoads(t, dt);
-		glm::dvec3 fd = computeNFDistribution(-lsn, glm::inverse(angle) * force, torque);
+		auto [force, torque] = calculateLoads(t, dt);//[wf,lf]
+		glm::dvec3 ih, jh;
+		glm::dvec3 fd = computeNFDistribution(-lsn, glm::inverse(angle) * force, torque, ih, jh);//<ih,jh,kh>
 		double minForce = numeric_limits<double>::infinity();
 		for (auto& pair : contacts) {
-			minForce = min(minForce, pair.first.x * fd.x + pair.first.y * fd.y + fd.z);
+			minForce = min(minForce, glm::dot(pair.first, ih) * fd.x + glm::dot(pair.first, jh) * fd.y + fd.z);//kh
 		}
 		if (minForce <= 0) {
 			situ = ShipSituation::FLYING;
@@ -1807,18 +1805,18 @@ void PhysicsGrid::updatePhysics(double t, double dt) {
 			//(just writing force and torque here may cause issues with collision with terrain)
 		}
 		else {
-			glm::dvec3 nf = sn * glm::dot(sn, force);
-			glm::dvec3 tf = force - nf;
-			glm::dvec3 friction, ft;
+			glm::dvec3 nf = sn * glm::dot(sn, force);//wf
+			glm::dvec3 tf = force - nf;//wf
+			glm::dvec3 friction;
 			for (auto& pair : contacts) {
-				glm::dvec3 vel = velocity + angle * glm::cross(avel, pair.first);
+				glm::dvec3 vel = velocity + angle * glm::cross(avel, pair.first);//wf
 				double ef = glm::length(vel) * mass / dt;
-				double f = (pair.first.x * fd.x + pair.first.y * fd.y + fd.z) * pair.second;
+				double f = (glm::dot(pair.first, ih) * fd.x + glm::dot(pair.first, jh) * fd.y + fd.z) * pair.second;//kh
 				if (f * SF_BONUS < ef) situ = ShipSituation::SlIDING;
 				f = min(f, ef);
-				glm::dvec3 fr = -f * glm::normalize(vel);
-				friction += fr;
-				ft += glm::cross(angle * pair.first, fr);
+				glm::dvec3 fr = -f * glm::normalize(vel);//wf
+				friction += fr;//wf
+				//TODO:condition for force and torque to break static friction conditions
 			}
 			velocity = glm::dvec3(0);
 			avel = glm::dvec3(0);
@@ -1832,42 +1830,42 @@ void PhysicsGrid::updatePhysics(double t, double dt) {
 		}
 	}
 	else if (situ == ShipSituation::SlIDING) {
-		auto [force, torque] = calculateLoads(t, dt);
-		glm::dvec3 fd = computeNFDistribution(-lsn, glm::inverse(angle) * force, torque);
+		auto [force, torque] = calculateLoads(t, dt);//[wf,lf]
+		glm::dvec3 ih, jh;
+		glm::dvec3 fd = computeNFDistribution(-lsn, glm::inverse(angle) * force, torque, ih, jh);//<ih,jh,kh>
 		double minForce = numeric_limits<double>::infinity();
 		for (auto& pair : contacts) {
-			minForce = min(minForce, pair.first.x * fd.x + pair.first.y * fd.y + fd.z);
+			minForce = min(minForce, glm::dot(pair.first, ih) * fd.x + glm::dot(pair.first, jh) * fd.y + fd.z);//kh
 		}
 		if (minForce <= 0) {
-			//TODO:account for toppling over(COM outside contact points or torque doing sth)
 			situ = ShipSituation::FLYING;
 			integrate(t, dt, glm::dvec3(0), glm::dvec3(0));
 		}
 		else {
 			// double slope = acos(glm::dot(sn, glm::normalize(position)));
 			// double repose = atan(cpart->COF * SF_BONUS);
-			glm::dvec3 nf = sn * glm::dot(sn, force);
-			glm::dvec3 tf = force - nf;
+			glm::dvec3 nf = sn * glm::dot(sn, force);//wf
+			glm::dvec3 tf = force - nf;//wf
 			glm::dvec3 friction, ft;
 			if (glm::length(avel) * radius < 0.01)situ = ShipSituation::LANDED;
 			for (auto& pair : contacts) {
-				glm::dvec3 vel = velocity + angle * glm::cross(avel, pair.first);
-				double ef = glm::length(vel) * mass / dt;
-				double f = (pair.first.x * fd.x + pair.first.y * fd.y + fd.z) * pair.second;
+				glm::dvec3 vel = velocity + angle * glm::cross(avel, pair.first);//wf
+				double ef = glm::length(vel) * mass / dt;//wf
+				double f = (glm::dot(pair.first, ih) * fd.x + glm::dot(pair.first, jh) * fd.y + fd.z) * pair.second;//kh
 				if (f * SF_BONUS < ef) situ = ShipSituation::SlIDING;
-				glm::dvec3 fr = -f * glm::normalize(vel);
-				fr = fr - sn * glm::dot(sn, fr);
-				glm::dvec3 gc = angle * pair.first;
-				glm::dvec3 sgc = gc - sn * glm::dot(sn, gc);
-				glm::dvec3 nfr = sgc * glm::dot(sgc, fr) / glm::length2(sgc);
+				glm::dvec3 fr = -f * glm::normalize(vel);//wf
+				fr = fr - sn * glm::dot(sn, fr);//wf
+				glm::dvec3 gc = angle * pair.first;//wf
+				glm::dvec3 sgc = gc - sn * glm::dot(sn, gc);//wf
+				//glm::dvec3 nfr = sgc * glm::dot(sgc, fr) / glm::length2(sgc);
 				//arrows.push_back({ gc,gc + nfr });
 				//arrows.push_back({ gc,gc + fr - nfr });
 				arrows.push_back({ gc,gc + fr });
-				friction += fr;
-				ft += glm::cross(sgc, fr);//swapping this for gc makes it very weird
+				friction += fr;//wf
+				ft += glm::cross(gc, fr);//wf
 			}
 			if (situ == ShipSituation::SlIDING) {
-				integrate(t, dt, tf + friction, lsn * glm::dot(lsn, torque) + ft);
+				integrate(t, dt, tf + friction, lsn * glm::dot(lsn, torque) + glm::inverse(angle) * ft);
 			}
 			velocity = velocity - sn * glm::dot(sn, velocity);
 			avel = sn * glm::dot(sn, avel);
@@ -1880,10 +1878,10 @@ void PhysicsGrid::updatePhysics(double t, double dt) {
 		double elapsed = 0;
 		while (dt - elapsed > 1e-6) {
 			//check for collision
-			glm::dvec3 lp;
+			glm::dvec3 lp;//wf
 			shared_ptr<GridElement> cpart;
 			double step = min(dt - elapsed, checkCollision(dt - elapsed, lp, temp, cpart));
-			auto [force, torque] = calculateLoads(t + elapsed, step);
+			auto [force, torque] = calculateLoads(t + elapsed, step);//[wf,lf]
 			integrate(t + elapsed, step, force, torque);
 			if (step == dt - elapsed) {
 				//last segment
@@ -1891,12 +1889,13 @@ void PhysicsGrid::updatePhysics(double t, double dt) {
 				break;
 			}
 			elapsed += step;
-			glm::dvec3 axis = calculateContacts(sn);
-			glm::dvec3 vel = velocity + glm::cross(glm::rotate(angle, avel), lp);
-			glm::dvec3 fd = computeNFDistribution(-lsn, glm::inverse(angle) * force, torque);
+			glm::dvec3 axis = calculateContacts(sn);//lf
+			glm::dvec3 vel = velocity + glm::cross(glm::rotate(angle, avel), lp);//wf
+			glm::dvec3 ih, jh;
+			glm::dvec3 fd = computeNFDistribution(-lsn, glm::inverse(angle) * force, torque, ih, jh);//<ih,jh,kh>
 			double minForce = numeric_limits<double>::infinity();
 			for (auto& pair : contacts) {
-				minForce = min(minForce, pair.first.x * fd.x + pair.first.y * fd.y + fd.z);
+				minForce = min(minForce, glm::dot(pair.first, ih) * fd.x + glm::dot(pair.first, jh) * fd.y + fd.z);//kh
 			}
 			if (
 				glm::dot(sn, velocity) < 1e-4 &&
@@ -1918,7 +1917,7 @@ void PhysicsGrid::updatePhysics(double t, double dt) {
 			temp = glm::rotate(glm::inverse(angle), glm::cross(lp, sn));
 			temp = glm::rotate(angle, glm::inverse(inertialTensor) * temp);
 			glm::dvec3 nf = (sn * (glm::dot(vel, sn) * -(1 + cpart->COR))) /
-				(1 / mass + glm::dot(sn, glm::cross(temp, lp)));
+				(1 / mass + glm::dot(sn, glm::cross(temp, lp)));//wf
 			//TODO:sometimes energy is gained during a collision?
 			//(probably just when the ship is really close to being sliding lol)
 			//seems that every time this happens a lag spike also does
