@@ -1736,9 +1736,10 @@ glm::dvec3 PhysicsGrid::computeNFDistribution(glm::dvec3 kh, glm::dvec3 force, g
 	//sum(i=>f(i)*y[i])=-torque.x => a*sum(i=>x[i]*y[i])+b*sum(i=>y[i]*y[i])+c=-torque.x
 	//we have three linear equations with three variables,which we can solve
 	make_orthonormal_basis(kh, ih, jh);
-	double tx = glm::dot(torque, jh);   // torque around ih
-	double ty = -glm::dot(torque, ih);  // torque around jh
-	double fz = glm::dot(force, kh);    // total normal force
+	double z = glm::dot(contacts[0].first, kh);//all points have the same z coordinate
+	double d = z * glm::dot(force, ih) - glm::dot(torque, jh);
+	double e = glm::dot(torque, ih) + z * glm::dot(force, jh);
+	double f = glm::dot(force, kh);
 	double sum_x = 0, sum_y = 0;
 	double sum_xx = 0, sum_yy = 0, sum_xy = 0;
 	double n = static_cast<double>(contacts.size());
@@ -1756,7 +1757,7 @@ glm::dvec3 PhysicsGrid::computeNFDistribution(glm::dvec3 kh, glm::dvec3 force, g
 		{sum_xy, sum_yy, sum_y},
 		{sum_x, sum_y, n}
 	};
-	glm::dvec3 rhs = { tx, ty, fz };
+	glm::dvec3 rhs = { d,e,f };
 	glm::dvec3 abc = glm::inverse(J) * rhs;
 	return abc;
 }
@@ -1809,14 +1810,13 @@ void PhysicsGrid::updatePhysics(double t, double dt) {
 			glm::dvec3 tf = force - nf;//wf
 			glm::dvec3 friction;
 			for (auto& pair : contacts) {
-				glm::dvec3 vel = velocity + angle * glm::cross(avel, pair.first);//wf
-				double ef = glm::length(vel) * mass / dt;
+				glm::dvec3 vel = force + angle * (glm::cross(pair.first, torque) / glm::length2(pair.first));//wf
+				double ef = glm::length(vel - sn * glm::dot(sn, vel));//wf
 				double f = (glm::dot(pair.first, ih) * fd.x + glm::dot(pair.first, jh) * fd.y + fd.z) * pair.second;//kh
 				if (f * SF_BONUS < ef) situ = ShipSituation::SlIDING;
 				f = min(f, ef);
 				glm::dvec3 fr = -f * glm::normalize(vel);//wf
 				friction += fr;//wf
-				//TODO:condition for force and torque to break static friction conditions
 			}
 			velocity = glm::dvec3(0);
 			avel = glm::dvec3(0);
@@ -1824,6 +1824,7 @@ void PhysicsGrid::updatePhysics(double t, double dt) {
 				//this actually omits one frame of friction,but whatever
 				integrate(t, dt, tf, lsn * glm::dot(lsn, torque));
 			}
+			glm::dvec3 axis = calculateContacts(sn);
 			angle = angle * glm::rotation(-axis, lsn);
 			double dist = soi->radius * (1 + soi->terrain.get(position)) + glm::dot(contacts[0].first, axis);
 			position = dist * glm::normalize(position);
@@ -1849,8 +1850,9 @@ void PhysicsGrid::updatePhysics(double t, double dt) {
 			glm::dvec3 friction, ft;
 			if (glm::length(avel) * radius < 0.01)situ = ShipSituation::LANDED;
 			for (auto& pair : contacts) {
-				glm::dvec3 vel = velocity + angle * glm::cross(avel, pair.first);//wf
-				double ef = glm::length(vel) * mass / dt;//wf
+				glm::dvec3 vel = force + angle * (glm::cross(pair.first, torque) / glm::length2(pair.first)) +
+					(velocity + angle * glm::cross(avel, pair.first)) * mass / dt;//wf
+				double ef = glm::length(vel - sn * glm::dot(sn, vel));//wf
 				double f = (glm::dot(pair.first, ih) * fd.x + glm::dot(pair.first, jh) * fd.y + fd.z) * pair.second;//kh
 				if (f * SF_BONUS < ef) situ = ShipSituation::SlIDING;
 				glm::dvec3 fr = -f * glm::normalize(vel);//wf
@@ -1863,10 +1865,13 @@ void PhysicsGrid::updatePhysics(double t, double dt) {
 				arrows.push_back({ gc,gc + fr });
 				friction += fr;//wf
 				ft += glm::cross(gc, fr);//wf
+				//sometimes the ship tilts in some odd direction
+				//sometimes it makes its position nan for some reason
 			}
 			if (situ == ShipSituation::SlIDING) {
 				integrate(t, dt, tf + friction, lsn * glm::dot(lsn, torque) + glm::inverse(angle) * ft);
 			}
+			glm::dvec3 axis = calculateContacts(sn);
 			velocity = velocity - sn * glm::dot(sn, velocity);
 			avel = sn * glm::dot(sn, avel);
 			angle = angle * glm::rotation(-axis, lsn);
@@ -1943,7 +1948,8 @@ pair<glm::dvec3, glm::dvec3> PhysicsGrid::calculateLoads(double t, double dt) {
 	force += position * (-mass * soi->gravity / pow(glm::length(position), 3));//gravity
 	for (auto& ptr : contents) {
 		force += angle * ptr.second->thrust;
-		torque += glm::cross(ptr.first, ptr.second->thrust);
+		torque += glm::cross(ptr.first + glm::dvec3(0.5, 0.5, 0.5) - COM, ptr.second->thrust);
+		//TODO:non-centered thrust of gridelements
 	}
 	return { force,torque };
 }
