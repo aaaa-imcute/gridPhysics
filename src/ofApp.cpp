@@ -22,7 +22,8 @@ void ofApp::setup(){
 		}
 		return plains.getLerped(mountains, h * 2 - 1);
 		};
-	planets[0]->terrain.generate(436, 0.1, 2);
+	//planets[0]->terrain.generate(436, 0.01, 2);
+	planets[0]->terrain.generateTest();
 	planetAtlasReady = false;//do this after every change made to the terrain or color scheme of a planet
 	createPlanetAtlas();//for some reason this doesnt work in the display methods of the planet class
 	//it only works here
@@ -32,28 +33,28 @@ void ofApp::setup(){
 	t1.fluids["metal"].first = 0;
 	t2.fluids["metal"].first = 0;
 	GridElement t3("solid-rocket-engine", 1000, 0.7, 0.15);
-	PhysicsGrid p1({ 574135,0,0 }, { 0,0,0 }, planets[0], 0);
+	t3.rotateFrontFace();
+	t3.rotateFrontFace();
+	t3.rotateFrontFace();
+	t3.rotateFrontFace();
+	t3.rotateFrontFace();
+	t1.rotateFrontFace();
+	t1.rotateFrontFace();
+	t1.rotateFrontFace();
+	t1.rotateFrontFace();
+	t1.rotateFrontFace();
+	t2.rotateFrontFace();
+	t2.rotateFrontFace();
+	t2.rotateFrontFace();
+	t2.rotateFrontFace();
+	t2.rotateFrontFace();
+	PhysicsGrid p1({ 600001.5,0,0 }, { 0,0,0 }, planets[0], 0);
 	p = make_shared<PhysicsGrid>(p1);
 	p->setItem(make_shared<GridElement>(t1), 0, 0, 0);
-	p->setItem(make_shared<GridElement>(t2), 0, 1, 0);
+	p->setItem(make_shared<GridElement>(t2), 1, 0, 0);
 	p->setItem(make_shared<GridElement>(t3), 0, -1, 0);
-	p->getItem(0, -1, 0)->rotateFrontFace();
-	p->getItem(0, -1, 0)->rotateFrontFace();
-	p->getItem(0, -1, 0)->rotateFrontFace();
-	p->getItem(0, -1, 0)->rotateFrontFace();
-	p->getItem(0, -1, 0)->rotateFrontFace();
-	p->getItem(0, 0, 0)->rotateFrontFace();
-	p->getItem(0, 0, 0)->rotateFrontFace();
-	p->getItem(0, 0, 0)->rotateFrontFace();
-	p->getItem(0, 0, 0)->rotateFrontFace();
-	p->getItem(0, 0, 0)->rotateFrontFace();
-	p->getItem(0, 1, 0)->rotateFrontFace();
-	p->getItem(0, 1, 0)->rotateFrontFace();
-	p->getItem(0, 1, 0)->rotateFrontFace();
-	p->getItem(0, 1, 0)->rotateFrontFace();
-	p->getItem(0, 1, 0)->rotateFrontFace();
 	p->updateGrid();
-	p->angle = { sqrt(2) / 2,0,0,-sqrt(2) / 2 };
+	//p->angle = { sqrt(2) / 2,0,0,-sqrt(2) / 2 };
 	initialEnergy = p->totalEnergy();
 	/*auto spec = p->getItem(0, -1, 0)->engineData();
 	visit(
