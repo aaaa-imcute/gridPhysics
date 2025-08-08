@@ -823,7 +823,7 @@ glm::dvec3 getAlignedAxis(glm::dvec3 v, vector<pair<glm::dvec3, double>>& c) {
 	if (c.size() < 3)return glm::dvec3(0) / 0.0;
 	glm::dvec3 x = c[0].first, y = c[1].first, r;
 	for (int i = 2; i < c.size(); i++) {
-		r = glm::cross(y - x, c[2].first - x);
+		r = glm::cross(y - x, c[i].first - x);
 		if (r != glm::dvec3(0, 0, 0))break;
 	}
 	r = glm::normalize(r);
@@ -1739,18 +1739,14 @@ glm::dvec3 PhysicsGrid::calculateContacts(glm::dvec3 sn) {
 	return axis;//TODO:vary friction coefficient based on shape of contact(three points,two lines,one face)
 }
 vector<pair<glm::dvec3, glm::dvec3>> arrows;
-glm::dvec3 PhysicsGrid::computeNFDistribution(glm::dvec3 kh, glm::dvec3 force, glm::dvec3 torque,glm::dvec3& ih, glm::dvec3& jh) {
+glm::dvec3 PhysicsGrid::computeNFDistribution(glm::dvec3 kh, glm::dvec3 force, glm::dvec3 torque, glm::dvec3& ih, glm::dvec3& jh) {
+	//calculates (affine) normal force distribution
+	//also trims contacts,returns nan vector if invalid
 	//force torque and normal(kh) must be local,i.e probably glm::inverse(angle)*force
 	//output:{a,b,c}
-	//also kh points into the planet i think?
+	//also kh points into the planet i think?i.e probably -glm::inverse(angle)*sn
 
-	//so the object is resting on the surface,and the force of each contact must vary
-	//linearly according to their position because they belong to the same rigid body.
-	//this gives f(i)=a*x[i]+b*y[i]+c
-	//where sum(i=>f(i))=force => a*sum(x)+b*sum(y)+c=force
-	//sum(i=>f(i)*x[i])=torque.y => a*sum(i=>x[i]*x[i])+b*sum(i=>y[i]*x[i])+c=torque.y
-	//sum(i=>f(i)*y[i])=-torque.x => a*sum(i=>x[i]*y[i])+b*sum(i=>y[i]*y[i])+c=-torque.x
-	//we have three linear equations with three variables,which we can solve
+	if (glm::any(glm::isnan(getAlignedAxis(-kh, contacts))))return glm::dvec3(0) / 0.0;
 	make_orthonormal_basis(kh, ih, jh);
 	double z = glm::dot(contacts[0].first, kh);//all points have the same z coordinate
 	double d = z * glm::dot(force, ih) - glm::dot(torque, jh);
@@ -1775,9 +1771,15 @@ glm::dvec3 PhysicsGrid::computeNFDistribution(glm::dvec3 kh, glm::dvec3 force, g
 	};
 	glm::dvec3 rhs = { d,e,f };
 	glm::dvec3 abc = glm::inverse(J) * rhs;
-	return abc;//TODO:at this point check if all forces are positive,if they aren't then recompute without the bad contacts
-	//then if the contacts no longer form a valid surface return something indicating the contacts failed
-	//instead of downstream checking if minforce is less than zero or whatever
+	bool ok = true;
+	for (auto& pair : contacts) {
+		if (glm::dot(pair.first, ih) * abc.x + glm::dot(pair.first, jh) * abc.y + abc.z <= 0){
+			ok = false;
+			contacts.erase(remove(contacts.begin(), contacts.end(), pair), contacts.end());
+		}
+	}
+	if (ok)return abc;
+	return computeNFDistribution(kh, force, torque, ih, jh);
 }
 void PhysicsGrid::updatePhysics(double t, double dt) {
 	//TODO:Many parts assume that only contact forces can be off-center
@@ -1823,11 +1825,7 @@ void PhysicsGrid::updatePhysicsLanded(double t, double dt) {
 	auto [force, torque] = calculateLoads(t, dt);//[wf,lf]
 	glm::dvec3 ih, jh;
 	glm::dvec3 fd = computeNFDistribution(-lsn, glm::inverse(angle) * force, torque, ih, jh);//<ih,jh,kh>
-	double minForce = numeric_limits<double>::infinity();
-	for (auto& pair : contacts) {
-		minForce = min(minForce, glm::dot(pair.first, ih) * fd.x + glm::dot(pair.first, jh) * fd.y + fd.z);//kh
-	}
-	if (minForce <= 0) {
+	if (glm::any(glm::isnan(fd))) {
 		situ = ShipSituation::FLYING;
 		updatePhysicsFlying(t, dt);
 		return;
@@ -1847,8 +1845,12 @@ void PhysicsGrid::updatePhysicsLanded(double t, double dt) {
 		updatePhysicsSliding(t, dt);
 		return;
 	}
+	glm::dvec3 axis = calculateContacts(sn);
 	velocity = glm::dvec3(0);
 	avel = glm::dvec3(0);
+	angle = angle * glm::rotation(-axis, lsn);
+	double dist = soi->radius * (1 + soi->terrain.get(position)) + glm::dot(contacts[0].first, axis);
+	position = dist * glm::normalize(position);
 }
 void PhysicsGrid::updatePhysicsSliding(double t, double dt) {
 	glm::dvec3 sn = soi->terrain.getSurfaceNormal(position);//wf
@@ -1856,11 +1858,7 @@ void PhysicsGrid::updatePhysicsSliding(double t, double dt) {
 	auto [force, torque] = calculateLoads(t, dt);//[wf,lf]
 	glm::dvec3 ih, jh;
 	glm::dvec3 fd = computeNFDistribution(-lsn, glm::inverse(angle) * force, torque, ih, jh);//<ih,jh,kh>
-	double minForce = numeric_limits<double>::infinity();
-	for (auto& pair : contacts) {
-		minForce = min(minForce, glm::dot(pair.first, ih) * fd.x + glm::dot(pair.first, jh) * fd.y + fd.z);//kh
-	}
-	if (minForce <= 0) {
+	if (glm::any(glm::isnan(fd))) {
 		situ = ShipSituation::FLYING;
 		updatePhysicsFlying(t, dt);
 		return;
@@ -1899,7 +1897,7 @@ void PhysicsGrid::updatePhysicsSliding(double t, double dt) {
 	}
 	glm::dvec3 axis = calculateContacts(sn);
 	velocity = velocity - sn * glm::dot(sn, velocity);
-	avel = sn * glm::dot(sn, avel);
+	avel = lsn * glm::dot(lsn, avel);
 	angle = angle * glm::rotation(-axis, lsn);
 	double dist = soi->radius * (1 + soi->terrain.get(position)) + glm::dot(contacts[0].first, axis);
 	position = dist * glm::normalize(position);
@@ -1922,15 +1920,9 @@ void PhysicsGrid::updatePhysicsFlying(double t, double dt) {
 		glm::dvec3 vel = velocity + glm::cross(glm::rotate(angle, avel), lp);//wf
 		glm::dvec3 ih, jh;
 		glm::dvec3 fd = computeNFDistribution(-lsn, glm::inverse(angle) * force, torque, ih, jh);//<ih,jh,kh>
-		double minForce = numeric_limits<double>::infinity();
-		for (auto& pair : contacts) {
-			minForce = min(minForce, glm::dot(pair.first, ih) * fd.x + glm::dot(pair.first, jh) * fd.y + fd.z);//kh
-		}
 		if (
 			glm::dot(sn, velocity) < 1e-4 &&
-			contacts.size() >= 3 &&
-			!glm::any(glm::isnan(axis)) &&
-			minForce > 0
+			!glm::any(glm::isnan(fd))
 			) {
 			situ = ShipSituation::SlIDING;
 			updatePhysicsSliding(t + elapsed, dt - elapsed);
