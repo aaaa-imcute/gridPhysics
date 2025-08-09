@@ -28,11 +28,12 @@ void ofApp::setup(){
 	createPlanetAtlas();//for some reason this doesnt work in the display methods of the planet class
 	//it only works here
 	//TODO:find out why
-	GridElement t1("metal-tank", 1000, 0.7, 0.15);
-	GridElement t2("metal-tank", 1000, 0.7, 0.15);
+	GridElement t1("metal-tank", 1000, 1.0, 0.15);
+	GridElement t2("metal-tank", 1000, 1.0, 0.15);
+	GridElement t3("solid-rocket-engine", 1000, 1.0, 0.15);
 	t1.fluids["metal"].first = 0;
 	t2.fluids["metal"].first = 0;
-	GridElement t3("solid-rocket-engine", 1000, 0.7, 0.15);
+	t3.fluids["metal"].first = 0;
 	t3.rotateFrontFace();
 	t3.rotateFrontFace();
 	t3.rotateFrontFace();
@@ -48,10 +49,10 @@ void ofApp::setup(){
 	t2.rotateFrontFace();
 	t2.rotateFrontFace();
 	t2.rotateFrontFace();
-	PhysicsGrid p1({ 600001.5,0,0 }, { 0,0,0 }, planets[0], 0);
+	PhysicsGrid p1({ 600020,0,0 }, { 0,0,0 }, planets[0], 0);
 	p = make_shared<PhysicsGrid>(p1);
 	p->setItem(make_shared<GridElement>(t1), 0, 0, 0);
-	p->setItem(make_shared<GridElement>(t2), 1, 0, 0);
+	p->setItem(make_shared<GridElement>(t2), 0, 1, 0);
 	p->setItem(make_shared<GridElement>(t3), 0, -1, 0);
 	p->updateGrid();
 	//p->angle = { sqrt(2) / 2,0,0,-sqrt(2) / 2 };

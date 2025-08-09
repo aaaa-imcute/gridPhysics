@@ -1638,9 +1638,9 @@ void PhysicsGrid::updateGrid() {
 		glm::dvec3 p = pos + glm::dvec3(0.5, 0.5, 0.5) - COM;
 		double x = p.x, y = p.y, z = p.z;
 		glm::dmat3 s(
-			glm::vec3(y * y + z * z, -x * y, -x * z),  // First row
-			glm::vec3(-y * x, x * x + z * z, -y * z),  // Second row
-			glm::vec3(-z * x, -z * y, x * x + y * y)   // Third row
+			glm::dvec3(y * y + z * z, -x * y, -x * z),  // First row
+			glm::dvec3(-y * x, x * x + z * z, -y * z),  // Second row
+			glm::dvec3(-z * x, -z * y, x * x + y * y)   // Third row
 		);
 		inertialTensor += (c + s) * ptr.second->mass();
 	}
@@ -1870,7 +1870,7 @@ void PhysicsGrid::updatePhysicsSliding(double t, double dt) {
 	for (auto& pair : contacts) {
 		glm::dvec3 vel = force + angle * (glm::cross(pair.first, torque) / glm::length2(pair.first)) +
 			(velocity + angle * glm::cross(avel, pair.first)) * mass / dt;//wf
-		double ef = glm::length(vel - sn * glm::dot(sn, vel))/contacts.size();//wf
+		double ef = glm::length(vel - sn * glm::dot(sn, vel)) / contacts.size();//wf
 		//temporary patch so friction doesn't overshoot
 		//the friction limit for not overshooting should probably not be divided equally across contacts
 		double f = (glm::dot(pair.first, ih) * fd.x + glm::dot(pair.first, jh) * fd.y + fd.z) * pair.second;//kh
@@ -1921,20 +1921,19 @@ void PhysicsGrid::updatePhysicsFlying(double t, double dt) {
 		glm::dvec3 ih, jh;
 		glm::dvec3 fd = computeNFDistribution(-lsn, glm::inverse(angle) * force, torque, ih, jh);//<ih,jh,kh>
 		if (
-			glm::dot(sn, velocity) < 1e-4 &&
+			glm::dot(sn, velocity) <= 0 &&
+			glm::dot(sn, velocity) > -1e-2 &&
 			!glm::any(glm::isnan(fd))
 			) {
 			situ = ShipSituation::SlIDING;
 			updatePhysicsSliding(t + elapsed, dt - elapsed);
 			break;
 		}
-		temp = glm::rotate(glm::inverse(angle), glm::cross(lp, sn));
-		temp = glm::rotate(angle, glm::inverse(inertialTensor) * temp);
+		glm::dmat3 R = glm::toMat3(angle);
+		glm::dmat3 it = R * inertialTensor * glm::transpose(R);
+		temp = glm::inverse(it) * glm::cross(lp, sn);
 		glm::dvec3 nf = (sn * (glm::dot(vel, sn) * -(1 + cpart->COR))) /
 			(1 / mass + glm::dot(sn, glm::cross(temp, lp)));//wf
-		//TODO:sometimes energy is gained during a collision?
-		//(probably just when the ship is really close to being sliding lol)
-		//seems that every time this happens a lag spike also does
 		velocity += nf / mass;
 		avel += glm::inverse(inertialTensor) * (glm::inverse(angle) * glm::cross(lp, nf));
 	}
@@ -2072,9 +2071,33 @@ double PhysicsGrid::checkCollision(double maxDT, glm::dvec3& ret_position, glm::
 	return checkCollision(maxDT, ret_position, contact_normal, part);
 }
 double PhysicsGrid::totalEnergy() {
-	double KE = 0.5 * mass * glm::dot(velocity, velocity);
-	double rotKE = 0.5 * glm::dot(avel, inertialTensor * avel);
-	double GE = -soi->gravity * mass / glm::length(position);
+	//uses dry mass for calculation
+	//idk if using dry mass for rotational kinetic energy makes any sense
+	double m = 0;
+	glm::dmat3 i;
+	glm::dvec3 com;
+	for (auto& ptr : contents) {
+		if (ptr.second == nullptr)continue;
+		m += ptr.second->dryMass;
+		com += (ptr.first + glm::dvec3(0.5, 0.5, 0.5)) * ptr.second->dryMass;
+	}
+	com /= m;
+	for (auto& ptr : contents) {
+		if (ptr.second == nullptr)continue;
+		glm::dvec3 pos = ptr.first;
+		glm::dmat3 c(1.0 / 6);
+		glm::dvec3 p = pos + glm::dvec3(0.5, 0.5, 0.5) - com;
+		double x = p.x, y = p.y, z = p.z;
+		glm::dmat3 s(
+			glm::dvec3(y * y + z * z, -x * y, -x * z),
+			glm::dvec3(-y * x, x * x + z * z, -y * z),
+			glm::dvec3(-z * x, -z * y, x * x + y * y)
+		);
+		i += (c + s) * ptr.second->dryMass;
+	}
+	double KE = 0.5 * m * glm::dot(velocity, velocity);
+	double rotKE = 0.5 * glm::dot(avel, i * avel);
+	double GE = -soi->gravity * m / glm::length(position);
 	return KE + rotKE + GE;
 }
 void PhysicsGrid::updateInternal(double t, double dt) {
