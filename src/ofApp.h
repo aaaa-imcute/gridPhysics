@@ -374,12 +374,11 @@ public:
 			}
 		}
 	}
-	glm::dvec3 getSurfaceNormal(glm::dvec3 pos) {
+	glm::dvec3 getSurfaceNormal(glm::dvec3 pos,double& H) {
 		double EP = 1e-8;
 		double th, ph;
 		glm::dvec3 rb, thb, phb, sn;
 		double alt, rho;
-		double H;
 		alt = glm::length(pos);
 		th = acos(pos.y / alt);
 		ph = atan2(pos.z, pos.x);
@@ -405,9 +404,12 @@ public:
 		sn = rb -
 			thb * get_terrain_height_dth(coeff, th, ph, MAX_SH_LEVEL) / H -
 			phb * get_terrain_height_dph(coeff, th, ph, MAX_SH_LEVEL) / H / sin(th);
-		//sn = glm::dvec3(1, 0, 0);
 		sn = glm::normalize(sn);
 		return sn;
+	}
+	glm::dvec3 getSurfaceNormal(glm::dvec3 pos) {
+		double H;
+		return getSurfaceNormal(pos, H);
 	}
 };
 class Planet;
@@ -723,7 +725,7 @@ void Planet::displayMode1(double t, int planetI) {
 	ofSetColor(255, 255, 255);
 	mesh.clear();//probably superfluous
 	terrain.mesh(mesh, ref, planetI);
-	of3dPrimitive brush = { mesh };
+	brush.getMesh() = std::move(mesh);
 	brush.setScale(radius * orbitScale / DM3_SCALE);
 	createPlanetAtlas();
 	ofTexture tex = planetAtlas.getTexture();
@@ -757,7 +759,7 @@ void Planet::displayMode3(glm::dvec3 shipPos, int planetI) {
 	ofSetColor(255, 255, 255);//TODO
 	mesh.clear();//probably superfluous
 	terrain.mesh(mesh, ref, planetI, true);
-	of3dPrimitive brush = { mesh };
+	brush.getMesh() = std::move(mesh);
 	brush.setScale(radius);
 	createPlanetAtlas();
 	ofTexture t = planetAtlas.getTexture();
@@ -1205,7 +1207,7 @@ public:
 	void updatePhysicsFlying(double t, double dt);
 	void integrate(double t, double dt, glm::dvec3 force, glm::dvec3 torque);
 	pair<glm::dvec3, glm::dvec3> calculateLoads(double t, double dt);
-	double checkCollision(double maxDT, glm::dvec3& ret_position, glm::dvec3& contact_normal, shared_ptr<GridElement>& part);
+	double checkCollision(double maxDT, double H, glm::dvec3 sn, glm::dvec3& ret_position, glm::dvec3& contact_normal, shared_ptr<GridElement>& part);
 	double totalEnergy();
 	void updateInternal(double t, double dt);
 private:
@@ -1650,14 +1652,17 @@ void PhysicsGrid::updateGrid() {
 		if (ptr.second == nullptr)continue;
 		glm::dvec3 pos = ptr.first;
 		bool flipped = glm::cross(ptr.second->front(), ptr.second->top()) == ptr.second->right();
+		string path = "parts\\" + ptr.second->type + "_";
+		glm::dvec3 normals[6] = {};
 		for (int i = 0; i < 6; i++) {
-			glm::dvec3 normal = ptr.second->faceNormal(i);
+			normals[i] = ptr.second->faceNormal(i);
+		}
+		for (int i = 0; i < 6; i++) {
+			glm::dvec3 normal = normals[i];
 			if (getItem(pos + normal) != nullptr)continue;
-			glm::dvec3 w = ptr.second->faceNormal((i / 2 * 2 + 4) % 6),
-				h = ptr.second->faceNormal((i / 2 * 2 + 2) % 6);
+			glm::dvec3 w = normals[(i / 2 * 2 + 4) % 6],
+				h = normals[(i / 2 * 2 + 2) % 6];
 			int bf = ptr.second->faces()[i];
-			string fn = faceNames[bf];
-			string an = "parts\\" + ptr.second->type + "_" + fn;
 			glm::dvec3 pf = ptr.second->pointingFace(i);
 			glm::dvec3 rp, rw, rh;
 			if (i % 2 == 0) {
@@ -1672,7 +1677,7 @@ void PhysicsGrid::updateGrid() {
 			}
 			//this is a very long function
 			glm::dvec2 ap, aw, ah, t1, t2, t3;
-			t1 = atlasMap[an];
+			t1 = atlasMap[path + faceNames[bf]];
 			t2 = { 16,0 };
 			t3 = { 0,16 };
 			if (!flipped || !(bf > 1)) {
@@ -1702,7 +1707,7 @@ void PhysicsGrid::updateGrid() {
 			getRectangleMesh(mesh, rp, rw, rh, ap, aw, ah);
 		}
 	}
-	brush = { mesh };
+	brush.getMesh() = std::move(mesh);
 	radius = 0;
 	for (auto& ptr : contents) {
 		if (ptr.second == nullptr)continue;
@@ -1903,7 +1908,8 @@ void PhysicsGrid::updatePhysicsSliding(double t, double dt) {
 	position = dist * glm::normalize(position);
 }
 void PhysicsGrid::updatePhysicsFlying(double t, double dt) {
-	glm::dvec3 sn = soi->terrain.getSurfaceNormal(position);//wf
+	double H;
+	glm::dvec3 sn = soi->terrain.getSurfaceNormal(position,H);//wf
 	glm::dvec3 lsn = glm::inverse(angle) * sn;//lf
 	double elapsed = 0;
 	while (dt - elapsed > 1e-6) {
@@ -1911,7 +1917,7 @@ void PhysicsGrid::updatePhysicsFlying(double t, double dt) {
 		glm::dvec3 lp;//wf
 		shared_ptr<GridElement> cpart;
 		glm::dvec3 temp;
-		double step = min(dt - elapsed, checkCollision(dt - elapsed, lp, temp, cpart));
+		double step = min(dt - elapsed, checkCollision(dt - elapsed, H, sn, lp, temp, cpart));
 		auto [force, torque] = calculateLoads(t + elapsed, step);//[wf,lf]
 		integrate(t + elapsed, step, force, torque);
 		if (step == dt - elapsed) break;
@@ -1959,16 +1965,15 @@ pair<glm::dvec3, glm::dvec3> PhysicsGrid::calculateLoads(double t, double dt) {
 	}
 	return { force,torque };
 }
-double PhysicsGrid::checkCollision(double maxDT, glm::dvec3& ret_position, glm::dvec3& contact_normal, shared_ptr<GridElement>& part) {
+double PhysicsGrid::checkCollision(double maxDT, double H, glm::dvec3 sn, glm::dvec3& ret_position, glm::dvec3& contact_normal, shared_ptr<GridElement>& part) {
 	//return +inf for no result,otherwise return time to collision
 	//btw not to be called when situ is sliding or landed for obvious reasons
 	double EP = 1e-8;
-	double th, ph;
 	glm::dvec3 pos, localpos;
 	glm::dquat ang;
 	double l_of_avel = glm::length(avel), speed = glm::length(velocity);
-	glm::dvec3 rb, thb, phb, sn, cc;
-	double alt, rho, dts;
+	glm::dvec3 cc;
+	double alt, dts;
 	double step = maxDT / 10;//artificially introduce tunnelling :(
 	//maxDT is expected to be PHYSICS_DT
 	//design the tunnelling around that
@@ -1976,7 +1981,6 @@ double PhysicsGrid::checkCollision(double maxDT, glm::dvec3& ret_position, glm::
 	//in total in the worst case
 	//actually step should be tb/10 i think
 	bool last = false;
-	double H;
 	double ta = 0, tb = maxDT, time = tb;
 	bool bisection = false;
 	//bisect the time and do actual specific calculations to compute exact time
@@ -1984,38 +1988,6 @@ double PhysicsGrid::checkCollision(double maxDT, glm::dvec3& ret_position, glm::
 	//wouldnt hurt to cut some costly get_terrain_height() calls
 	pos = position + velocity * time;
 	alt = glm::length(pos);
-	th = acos(pos.y / alt);
-	ph = atan2(pos.z, pos.x);
-	if (ph < 0.0f)
-		ph += glm::two_pi<float>();
-	rho = sqrt(pos.x * pos.x + pos.z * pos.z);
-	rb = glm::dvec3(
-		sin(th) * cos(ph),
-		cos(th),
-		sin(th) * sin(ph)
-	);
-	thb = glm::dvec3(
-		cos(th) * cos(ph),
-		-sin(th),
-		cos(th) * sin(ph)
-	);
-	phb = glm::dvec3(
-		-sin(ph),
-		0.0,
-		cos(ph)
-	);
-	H = 1 + get_terrain_height(soi->terrain.coeff, th, ph, MAX_SH_LEVEL);
-	sn = rb -
-		thb * get_terrain_height_dth(soi->terrain.coeff, th, ph, MAX_SH_LEVEL) / H -
-		phb * get_terrain_height_dph(soi->terrain.coeff, th, ph, MAX_SH_LEVEL) / H / sin(th);
-	sn = glm::normalize(sn);
-	if (abs(
-		get_terrain_height_dth(soi->terrain.coeff, th, ph, 1) -
-		(
-			get_terrain_height(soi->terrain.coeff, th + 0.001, ph, 1) -
-			get_terrain_height(soi->terrain.coeff, th, ph, 1)
-			) / 0.001
-	) > 0.001)throw "not right";
 	do {
 		//initialization
 		pos = position + velocity * time;
@@ -2068,7 +2040,7 @@ double PhysicsGrid::checkCollision(double maxDT, glm::dvec3& ret_position, glm::
 			break;
 		}
 	} while (bisection);
-	return checkCollision(maxDT, ret_position, contact_normal, part);
+	return checkCollision(maxDT, H, sn, ret_position, contact_normal, part);
 }
 double PhysicsGrid::totalEnergy() {
 	//uses dry mass for calculation

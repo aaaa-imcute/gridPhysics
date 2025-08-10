@@ -75,8 +75,8 @@ double totalTime = 0.0;
 void ofApp::update(){
 	dragMap();
 	if (sceneDisplayed != 2) {
-		remainingSimulation += ofGetLastFrameTime();
-		for (; remainingSimulation > PHYSICS_DT; remainingSimulation -= PHYSICS_DT) {
+		remainingSimulation += PHYSICS_DT * 10;//ofGetLastFrameTime();
+		for (; remainingSimulation >= PHYSICS_DT; remainingSimulation -= PHYSICS_DT) {
 			p->updatePhysics(totalTime,PHYSICS_DT);
 			p->updateInternal(totalTime, PHYSICS_DT);
 			totalTime += PHYSICS_DT;
