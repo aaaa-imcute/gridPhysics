@@ -1164,9 +1164,13 @@ public:
 	double tankTransferRate();
 	MonoPropSpec monopropEngineData();//std::variant is too troublesome for this
 	BiPropSpec bipropEngineData();
+	glm::dvec3 reactionWheelTorque();
 	double throttleA = 0;
 	double throttleB = 0;
+	double throttleC = 0;
 	glm::dvec3 thrust;
+	glm::dvec3 torque;
+	//TODO:possible off-center thrust?
 	double mass();
 	void update(glm::dvec3 pos, double t, double dt);
 	void integrate(double t, double dt);
@@ -1254,6 +1258,23 @@ GridElement::GridElement(string t, double m, double r, double f) {
 			double h = glm::length(g->parent->position) - g->parent->soi->radius;
 			double Pa = (h > g->parent->soi->atmoHeight()) ? 0 : g->parent->soi->atmoPressure(h);
 			return to_string(calculateEjectionVelocity(g->monopropEngineData(), Pa, g->throttleA));
+			}
+		)));
+	}
+	else if (type == "reaction-wheel") {
+		menu.push_back(make_shared<SliderMenuElement>(SliderMenuElement("Pitch authority", [&](auto g, auto s, double v) {
+			g->throttleA = v;
+			return make_pair(v, 1);
+			}
+		)));
+		menu.push_back(make_shared<SliderMenuElement>(SliderMenuElement("Yaw authority", [&](auto g, auto s, double v) {
+			g->throttleB = v;
+			return make_pair(v, 1);
+			}
+		)));
+		menu.push_back(make_shared<SliderMenuElement>(SliderMenuElement("Roll authority", [&](auto g, auto s, double v) {
+			g->throttleC = v;
+			return make_pair(v, 1);
 			}
 		)));
 	}
@@ -1437,6 +1458,10 @@ BiPropSpec GridElement::bipropEngineData() {
 	//needs x,y,and Pa from somewhere else(how do we let the user control the fuel ratio?)
 	return BiPropSpec();
 }
+glm::dvec3 GridElement::reactionWheelTorque() {
+	if (type == "reaction-wheel")return glm::dvec3(10000, 10000, 10000);
+	return glm::dvec3(0);
+}
 double GridElement::mass() {
 	double m = dryMass;
 	for (auto& pair : fluids) {
@@ -1502,6 +1527,15 @@ void GridElement::update(glm::dvec3 pos, double t, double dt) {
 	}
 	else {
 		thrust = glm::dvec3(0, 0, 0);
+	}
+	glm::dvec3 maxT = reactionWheelTorque();
+	if (maxT != glm::dvec3(0)) {
+		glm::dmat3 ori(right(), top(), front());//very convenient :D
+		glm::dvec3 T = (ori * maxT) * glm::dvec3(throttleA, throttleB, throttleC);
+		torque = T * glm::dvec3(keys['w'] - keys['s'], keys['d'] - keys['a'], keys['q'] - keys['e']);
+	}
+	else {
+		torque = glm::dvec3(0);
 	}
 }
 void GridElement::integrate(double t, double dt) {
@@ -1839,6 +1873,7 @@ void PhysicsGrid::updatePhysicsLanded(double t, double dt) {
 	glm::dvec3 tf = force - nf;//wf
 	glm::dvec3 friction;
 	for (auto& pair : contacts) {
+		glm::dvec3 test = angle * torque, test2 = angle * (glm::cross(pair.first, torque) / glm::length2(pair.first));
 		glm::dvec3 vel = force + angle * (glm::cross(pair.first, torque) / glm::length2(pair.first));//wf
 		double ef = glm::length(vel - sn * glm::dot(sn, vel)) / contacts.size();//wf
 		//temporary patch so friction doesn't overshoot
@@ -1961,7 +1996,7 @@ pair<glm::dvec3, glm::dvec3> PhysicsGrid::calculateLoads(double t, double dt) {
 	for (auto& ptr : contents) {
 		force += angle * ptr.second->thrust;
 		torque += glm::cross(ptr.first + glm::dvec3(0.5, 0.5, 0.5) - COM, ptr.second->thrust);
-		//TODO:non-centered thrust of gridelements
+		torque += ptr.second->torque;
 	}
 	return { force,torque };
 }
