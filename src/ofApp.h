@@ -1390,7 +1390,7 @@ void GridElement::displayMode2() {
 	ofPushMatrix();
 	ofTranslate(8, 8);
 	ofRotateRad(atan2f(n.y, n.x) + PI / 2);
-	if (glm::cross(front(), top()) == right() && f[2] > 1)ofScale(-1, 1);
+	if (glm::cross(front(), top()) == right())ofScale(-1, 1);
 	//problem:does not consider float imprecision,though in theory it doesn't need to
 	ofTranslate(-8, -8);
 	drawImage(".\\textures\\parts\\" + type + "_" + faceNames[f[2]] + ".png", 0, 0);
