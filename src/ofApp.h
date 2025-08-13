@@ -790,6 +790,7 @@ const ofColor MENU_COLOR1 = ofColor(0, 0, 0);//background
 const ofColor MENU_COLOR2 = ofColor(255, 255, 255);//buttons etc
 const ofColor MENU_COLOR3 = ofColor(0, 255, 0);//text
 const ofColor MENU_COLOR4 = ofColor(0, 0, 255);//text on white background
+shared_ptr<GridElement> resourceTransferOrigin;
 enum class ShipSituation {
 	LANDED,
 	SlIDING,
@@ -990,7 +991,7 @@ public:
 		ofSetColor(MENU_COLOR3);
 		drawText(label, 0, height());
 		ofSetColor(MENU_COLOR2);
-		ofDrawRectangle(buttonBoundingBox());
+		ofDrawRectRounded(buttonBoundingBox(), height() / 2);
 	}
 	double width() const {
 		return textWidth(label) + MENU_MARGIN + buttonWidth;
@@ -1278,6 +1279,44 @@ GridElement::GridElement(string t, double m, double r, double f) {
 			}
 		)));
 	}
+	else if (type == "command-core") {
+		menu.push_back(make_shared<SliderMenuElement>(SliderMenuElement("Pitch authority", [&](auto g, auto s, double v) {
+			g->throttleA = v;
+			return make_pair(v, 1);
+			}
+		)));
+		menu.push_back(make_shared<SliderMenuElement>(SliderMenuElement("Yaw authority", [&](auto g, auto s, double v) {
+			g->throttleB = v;
+			return make_pair(v, 1);
+			}
+		)));
+		menu.push_back(make_shared<SliderMenuElement>(SliderMenuElement("Roll authority", [&](auto g, auto s, double v) {
+			g->throttleC = v;
+			return make_pair(v, 1);
+			}
+		)));
+	}
+	if (fluids.size() != 0) {
+		menu.push_back(make_shared<ButtonMenuElement>(ButtonMenuElement("Set as transfer origin", [&](auto g, auto s) {
+			resourceTransferOrigin = g;
+			}
+		, textWidth("aa"))));
+	}
+	for (auto& pair : fluids) {
+		string key = pair.first;
+		menu.push_back(make_shared<ButtonMenuElement>(ButtonMenuElement("Transfer resource"+key, [key](auto g, auto s) {
+			if (
+				resourceTransferOrigin == nullptr ||
+				resourceTransferOrigin == g ||
+				resourceTransferOrigin->fluids.find(key) == resourceTransferOrigin->fluids.end()
+				)return;
+			double delta = min(g->fluids[key].second - g->fluids[key].first, resourceTransferOrigin->fluids[key].first);
+			resourceTransferOrigin->fluids[key].first -= delta;
+			g->fluids[key].first += delta;
+			}
+		, textWidth("aa"))));
+	}
+	
 };
 glm::dvec3 GridElement::faceNormal(int face) {//returns ship coordinates
 	switch (face) {
@@ -1460,6 +1499,7 @@ BiPropSpec GridElement::bipropEngineData() {
 }
 glm::dvec3 GridElement::reactionWheelTorque() {
 	if (type == "reaction-wheel")return glm::dvec3(10000, 10000, 10000);
+	if (type == "command-core")return glm::dvec3(5000, 5000, 5000);
 	return glm::dvec3(0);
 }
 double GridElement::mass() {

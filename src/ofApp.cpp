@@ -32,7 +32,7 @@ void ofApp::setup(){
 	GridElement t2("reaction-wheel", 1000, 0.7, 0.15);
 	GridElement t3("solid-rocket-engine", 1000, 0.7, 0.15);
 	t1.fluids["metal"].first = 0;
-	t3.fluids["metal"].first = 0;
+	//t3.fluids["metal"].first = 0;
 	t3.rotateFrontFace();
 	t3.rotateFrontFace();
 	t3.rotateFrontFace();
