@@ -791,6 +791,7 @@ const ofColor MENU_COLOR2 = ofColor(255, 255, 255);//buttons etc
 const ofColor MENU_COLOR3 = ofColor(0, 255, 0);//text
 const ofColor MENU_COLOR4 = ofColor(0, 0, 255);//text on white background
 shared_ptr<GridElement> resourceTransferOrigin;
+string selectedElementType = "fire-tank";
 enum class ShipSituation {
 	LANDED,
 	SlIDING,
@@ -1144,7 +1145,7 @@ public:
 };
 class GridElement : public enable_shared_from_this<GridElement> {
 public:
-	GridElement(string t, double m, double r, double f);
+	GridElement(string t);
 	string type;
 	double dryMass, COR, COF;//COF is kinetic friction,static friction is approximated by COF*1.25
 	int frontFace, topFace, rightFace;
@@ -1224,19 +1225,20 @@ private:
 	of3dPrimitive brush;
 	ofMesh mesh;
 };
-GridElement::GridElement(string t, double m, double r, double f) {
+GridElement::GridElement(string t) {
 	type = t;
-	dryMass = m;//TODO:Adjust based on current fluid contents(in integrate())
-	COR = r;
-	COF = f;
+	COR = 0.7;
+	COF = 0.15;
 	frontFace = 4;
 	topFace = 2;
 	rightFace = 0;
 	menu = {};
 	if (type == "fire-tank") {
+		dryMass = 1000;
 		fluids = { {"fire",{1000,1000}} };
 	}
 	else if (type == "metal-tank") {
+		dryMass = 1000;
 		fluids = { {"metal",{1000,1000}} };
 		menu.push_back(make_shared<ProgressMenuElement>(ProgressMenuElement("Metal", [&](auto g) {return g->fluids["metal"]; })));
 		throttleA = 1;
@@ -1247,6 +1249,7 @@ GridElement::GridElement(string t, double m, double r, double f) {
 		)));*///having flow rate control here is unrealistic
 	}
 	else if (type == "solid-rocket-engine") {
+		dryMass = 1000;
 		//TODO:thrust
 		fluids = { {"metal",{1000,1000}} };
 		menu.push_back(make_shared<ProgressMenuElement>(ProgressMenuElement("Metal", [&](auto g) {return g->fluids["metal"]; })));
@@ -1263,6 +1266,7 @@ GridElement::GridElement(string t, double m, double r, double f) {
 		)));
 	}
 	else if (type == "reaction-wheel") {
+		dryMass = 1000;
 		menu.push_back(make_shared<SliderMenuElement>(SliderMenuElement("Pitch authority", [&](auto g, auto s, double v) {
 			g->throttleA = v;
 			return make_pair(v, 1);
@@ -1280,6 +1284,7 @@ GridElement::GridElement(string t, double m, double r, double f) {
 		)));
 	}
 	else if (type == "command-core") {
+		dryMass = 1000;
 		menu.push_back(make_shared<SliderMenuElement>(SliderMenuElement("Pitch authority", [&](auto g, auto s, double v) {
 			g->throttleA = v;
 			return make_pair(v, 1);
@@ -1644,7 +1649,7 @@ void PhysicsGrid::displayMode2(int y) {
 		ofPushMatrix();
 		ofTranslate(glm::vec3(sPos));
 		ptr.second->displayMode2();
-		if (mousePressedOnLastFrame&&mouse[2]) {
+		if (mousePressedOnLastFrame && mouse[2]) {
 			glm::dvec2 m = untransform2D(mousePos);
 			ofDrawCircle(m, 1);
 			if (m.x > sPos.x && m.x < sPos.x + 16 && m.y > sPos.y && m.y < sPos.y + 16) {
@@ -1654,6 +1659,16 @@ void PhysicsGrid::displayMode2(int y) {
 			}
 		}
 		ofPopMatrix();
+	}
+	if (mousePressedOnLastFrame && mouse[2] && selectedPart == nullptr) {
+		glm::dvec2 m = untransform2D(mousePos);
+		glm::dvec2 p = glm::floor(m / 16);
+		if (selectedElementType.size()) {
+			setItem(make_shared<GridElement>(GridElement(selectedElementType)), -p.y, y, -p.x);
+		}
+		else {
+			removeItem(-p.y, y, -p.x);
+		}
 	}
 	if (selectedPart != nullptr && round(selectedPos.y) == y) {
 		glm::dvec2 sPos(-selectedPos.z * 16, -selectedPos.x * 16);

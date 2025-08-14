@@ -28,9 +28,9 @@ void ofApp::setup(){
 	createPlanetAtlas();//for some reason this doesnt work in the display methods of the planet class
 	//it only works here
 	//TODO:find out why
-	GridElement t1("metal-tank", 1000, 0.7, 0.15);
-	GridElement t2("reaction-wheel", 1000, 0.7, 0.15);
-	GridElement t3("solid-rocket-engine", 1000, 0.7, 0.15);
+	GridElement t1("metal-tank");
+	GridElement t2("reaction-wheel");
+	GridElement t3("solid-rocket-engine");
 	t1.fluids["metal"].first = 0;
 	//t3.fluids["metal"].first = 0;
 	t3.rotateFrontFace();
