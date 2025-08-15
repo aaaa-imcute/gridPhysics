@@ -29,7 +29,7 @@ void ofApp::setup(){
 	//it only works here
 	//TODO:find out why
 	GridElement t1("metal-tank");
-	GridElement t2("reaction-wheel");
+	GridElement t2("command-core");
 	GridElement t3("solid-rocket-engine");
 	t1.fluids["metal"].first = 0;
 	//t3.fluids["metal"].first = 0;

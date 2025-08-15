@@ -792,6 +792,11 @@ const ofColor MENU_COLOR3 = ofColor(0, 255, 0);//text
 const ofColor MENU_COLOR4 = ofColor(0, 0, 255);//text on white background
 shared_ptr<GridElement> resourceTransferOrigin;
 string selectedElementType = "fire-tank";
+unordered_map<string, unordered_map<string, double>> elementBuildCosts = {
+	{"fire-tank",{{"metal",1000}}},
+	{"metal-tank",{{"metal",1000}}},
+	{"reaction-wheel",{{"metal",500},{"spirits",500}}}
+};
 enum class ShipSituation {
 	LANDED,
 	SlIDING,
@@ -1227,6 +1232,7 @@ private:
 };
 GridElement::GridElement(string t) {
 	type = t;
+	dryMass = -1;
 	COR = 0.7;
 	COF = 0.15;
 	frontFace = 4;
@@ -1240,7 +1246,6 @@ GridElement::GridElement(string t) {
 	else if (type == "metal-tank") {
 		dryMass = 1000;
 		fluids = { {"metal",{1000,1000}} };
-		menu.push_back(make_shared<ProgressMenuElement>(ProgressMenuElement("Metal", [&](auto g) {return g->fluids["metal"]; })));
 		throttleA = 1;
 		/*menu.push_back(make_shared<SliderMenuElement>(SliderMenuElement("Injection rate", [&](auto g, auto s, double v) {
 			g->throttleA = v;
@@ -1252,7 +1257,6 @@ GridElement::GridElement(string t) {
 		dryMass = 1000;
 		//TODO:thrust
 		fluids = { {"metal",{1000,1000}} };
-		menu.push_back(make_shared<ProgressMenuElement>(ProgressMenuElement("Metal", [&](auto g) {return g->fluids["metal"]; })));
 		menu.push_back(make_shared<SliderMenuElement>(SliderMenuElement("Injection rate", [&](auto g, auto s, double v) {
 			g->throttleA = v;
 			return make_pair(v, 1);
@@ -1285,6 +1289,10 @@ GridElement::GridElement(string t) {
 	}
 	else if (type == "command-core") {
 		dryMass = 1000;
+		fluids = {
+			{ "metal",{2000,2000} },
+			{ "spirits",{1000,1000} }
+		};
 		menu.push_back(make_shared<SliderMenuElement>(SliderMenuElement("Pitch authority", [&](auto g, auto s, double v) {
 			g->throttleA = v;
 			return make_pair(v, 1);
@@ -1300,16 +1308,34 @@ GridElement::GridElement(string t) {
 			return make_pair(v, 1);
 			}
 		)));
+		for (auto& pair : elementBuildCosts) {
+			string key = pair.first;
+			menu.push_back(make_shared<ButtonMenuElement>(ButtonMenuElement("Create " + key, [key](auto g, auto s) {
+				if (resourceTransferOrigin == nullptr)resourceTransferOrigin = g;
+				selectedElementType = key;
+				}
+			, textWidth("aa"))));
+		}
+		menu.push_back(make_shared<ButtonMenuElement>(ButtonMenuElement("Recycle element", [](auto g, auto s) {
+			if (resourceTransferOrigin == nullptr)resourceTransferOrigin = g;
+			selectedElementType = "";
+			}
+		, textWidth("aa"))));
 	}
 	if (fluids.size() != 0) {
 		menu.push_back(make_shared<ButtonMenuElement>(ButtonMenuElement("Set as transfer origin", [&](auto g, auto s) {
 			resourceTransferOrigin = g;
 			}
 		, textWidth("aa"))));
+		menu.push_back(make_shared<ButtonMenuElement>(ButtonMenuElement("Reset transfer origin", [&](auto g, auto s) {
+			resourceTransferOrigin = nullptr;
+			}
+		, textWidth("aa"))));
 	}
 	for (auto& pair : fluids) {
 		string key = pair.first;
-		menu.push_back(make_shared<ButtonMenuElement>(ButtonMenuElement("Transfer resource"+key, [key](auto g, auto s) {
+		menu.push_back(make_shared<ProgressMenuElement>(ProgressMenuElement(key, [key](auto g) {return g->fluids[key]; })));
+		menu.push_back(make_shared<ButtonMenuElement>(ButtonMenuElement("Transfer resource "+key, [key](auto g, auto s) {
 			if (
 				resourceTransferOrigin == nullptr ||
 				resourceTransferOrigin == g ||
@@ -1321,7 +1347,7 @@ GridElement::GridElement(string t) {
 			}
 		, textWidth("aa"))));
 	}
-	
+	if (dryMass == -1)throw"fix your code";
 };
 glm::dvec3 GridElement::faceNormal(int face) {//returns ship coordinates
 	switch (face) {
@@ -1646,12 +1672,11 @@ void PhysicsGrid::displayMode2(int y) {
 		if (round(pos.y) != y) continue;
 		//in this scene,x+ goes up while z+ goes left
 		glm::dvec3 sPos(-pos.z * 16, -pos.x * 16, 0);
+		glm::dvec2 m = untransform2D(mousePos);
 		ofPushMatrix();
 		ofTranslate(glm::vec3(sPos));
 		ptr.second->displayMode2();
 		if (mousePressedOnLastFrame && mouse[2]) {
-			glm::dvec2 m = untransform2D(mousePos);
-			ofDrawCircle(m, 1);
 			if (m.x > sPos.x && m.x < sPos.x + 16 && m.y > sPos.y && m.y < sPos.y + 16) {
 				selectedPart = ptr.second;
 				selectedPos = pos;
@@ -1660,14 +1685,54 @@ void PhysicsGrid::displayMode2(int y) {
 		}
 		ofPopMatrix();
 	}
-	if (mousePressedOnLastFrame && mouse[2] && selectedPart == nullptr) {
+	if (mousePressedOnLastFrame && mouse[2] && resourceTransferOrigin != nullptr) {//TODO:consider fluid contents in cost
 		glm::dvec2 m = untransform2D(mousePos);
 		glm::dvec2 p = glm::floor(m / 16);
-		if (selectedElementType.size()) {
-			setItem(make_shared<GridElement>(GridElement(selectedElementType)), -p.y, y, -p.x);
+		glm::dvec3 pos(-p.y, y, -p.x);
+		shared_ptr<GridElement> item = getItem(pos);
+		if (item == nullptr && elementBuildCosts.find(selectedElementType) != elementBuildCosts.end()) {
+			auto& cost = elementBuildCosts[selectedElementType];
+			bool afford = true;
+			for (auto& pair : cost) {
+				if (
+					resourceTransferOrigin->fluids.find(pair.first) == resourceTransferOrigin->fluids.end() ||
+					resourceTransferOrigin->fluids[pair.first].first < pair.second
+					) {
+					afford = false;
+					break;
+				}
+			}
+			if (afford) {
+				for (auto& pair : cost) {
+					resourceTransferOrigin->fluids[pair.first].first -= pair.second;
+				}
+				setItem(make_shared<GridElement>(GridElement(selectedElementType)), pos);
+			}
 		}
-		else {
-			removeItem(-p.y, y, -p.x);
+		else if (
+			item != nullptr &&
+			elementBuildCosts.find(selectedElementType) == elementBuildCosts.end() &&
+			elementBuildCosts.find(item->type) != elementBuildCosts.end()
+			) {
+			auto& cost = elementBuildCosts[item->type];
+			bool afford = true;
+			for (auto& pair : cost) {
+				auto it = resourceTransferOrigin->fluids.find(pair.first);
+				if (
+					it == resourceTransferOrigin->fluids.end() ||
+					it->second.second - it->second.first < pair.second
+					) {
+					afford = false;
+					break;
+				}
+			}
+			if (afford) {
+				for (auto& pair : cost) {
+					resourceTransferOrigin->fluids[pair.first].first += pair.second;
+				}
+				removeItem(pos);
+				if (selectedPos == pos)selectedPart = nullptr;//this should always be true btw
+			}
 		}
 	}
 	if (selectedPart != nullptr && round(selectedPos.y) == y) {
@@ -1680,7 +1745,7 @@ void PhysicsGrid::displayMode2(int y) {
 		ofSetColor(255, 0, 0);
 		drawFaceNormal2D(selectedPart->right(), sPos + glm::dvec2(8, 8));
 		ofPushMatrix();
-		ofTranslate(menuPos);
+		ofTranslate(sPos + menuPos);
 		ofScale(1.0/16);
 		selectedPart->displayMenu();
 		ofPopMatrix();
