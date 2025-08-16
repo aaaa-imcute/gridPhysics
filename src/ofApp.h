@@ -792,9 +792,11 @@ const ofColor MENU_COLOR3 = ofColor(0, 255, 0);//text
 const ofColor MENU_COLOR4 = ofColor(0, 0, 255);//text on white background
 shared_ptr<GridElement> resourceTransferOrigin;
 string selectedElementType = "fire-tank";
-unordered_map<string, unordered_map<string, double>> elementBuildCosts = {
+const unordered_map<string, unordered_map<string, double>> elementBuildCosts = {
 	{"fire-tank",{{"metal",1000}}},
 	{"metal-tank",{{"metal",1000}}},
+	{"solid-rocket-engine",{{"metal",1000}}},
+	{"command-core",{{"spirits",1000}}},
 	{"reaction-wheel",{{"metal",500},{"spirits",500}}}
 };
 enum class ShipSituation {
@@ -983,11 +985,10 @@ public:
 	ButtonMenuElement(string l, function<void(shared_ptr<GridElement>, shared_ptr<ButtonMenuElement>)> c, double w) : label(l), callback(c), buttonWidth(w) {}
 	void update(shared_ptr<GridElement> parent, glm::dvec2 mp) {
 		if (mousePressedOnLastFrame && mouse[0] && buttonBoundingBox().inside(mp)) {
-			dontDragMap = true;
+			mousePressedOnLastFrame = false;
 			callback(parent, shared_from_this());
 		}
 		else if(buttonBoundingBox().inside(mp)){
-			dontDragMap = false;
 		}
 	}
 	ofRectangle buttonBoundingBox() const {
@@ -1017,13 +1018,12 @@ public:
 	void update(shared_ptr<GridElement> parent, glm::dvec2 mp) {
 		if (mousePressedOnLastFrame && mouse[0]) {
 			if (inputBoundingBox().inside(mp)) {
-				dontDragMap = true;
 				dontDetectKeys = true;
+				mousePressedOnLastFrame = false;
 				focused = true;
 				pointer = 0;
 			}
 			else if (focused) {
-				dontDragMap = false;
 				dontDetectKeys = false;
 				focused = false;
 			}
@@ -1110,14 +1110,13 @@ public:
 	void update(shared_ptr<GridElement> parent, glm::dvec2 mp) {
 		if (progressBoundingBox().inside(mp)&&mouse[0]) {
 			focused = true;
-			dontDragMap = true;
 		}
 		if (focused) {
 			if (!mouse[0]) {
 				focused = false;
-				dontDragMap = false;
 			}
 			else {
+				mousePressedOnLastFrame = false;
 				double pos = (mp.x - progressBoundingBox().getX()) / 256.0;
 				pos = glm::clamp(pos, 0.0, 1.0);
 				double factor = pow(2, glm::round(log(mapScale)) + 1);
@@ -1241,11 +1240,11 @@ GridElement::GridElement(string t) {
 	menu = {};
 	if (type == "fire-tank") {
 		dryMass = 1000;
-		fluids = { {"fire",{1000,1000}} };
+		fluids = { {"fire",{0,1000}} };
 	}
 	else if (type == "metal-tank") {
 		dryMass = 1000;
-		fluids = { {"metal",{1000,1000}} };
+		fluids = { {"metal",{0,1000}} };
 		throttleA = 1;
 		/*menu.push_back(make_shared<SliderMenuElement>(SliderMenuElement("Injection rate", [&](auto g, auto s, double v) {
 			g->throttleA = v;
@@ -1256,7 +1255,7 @@ GridElement::GridElement(string t) {
 	else if (type == "solid-rocket-engine") {
 		dryMass = 1000;
 		//TODO:thrust
-		fluids = { {"metal",{1000,1000}} };
+		fluids = { {"metal",{0,1000}} };
 		menu.push_back(make_shared<SliderMenuElement>(SliderMenuElement("Injection rate", [&](auto g, auto s, double v) {
 			g->throttleA = v;
 			return make_pair(v, 1);
@@ -1290,8 +1289,8 @@ GridElement::GridElement(string t) {
 	else if (type == "command-core") {
 		dryMass = 1000;
 		fluids = {
-			{ "metal",{2000,2000} },
-			{ "spirits",{1000,1000} }
+			{ "metal",{0,2000} },
+			{ "spirits",{0,1000} }
 		};
 		menu.push_back(make_shared<SliderMenuElement>(SliderMenuElement("Pitch authority", [&](auto g, auto s, double v) {
 			g->throttleA = v;
@@ -1311,13 +1310,13 @@ GridElement::GridElement(string t) {
 		for (auto& pair : elementBuildCosts) {
 			string key = pair.first;
 			menu.push_back(make_shared<ButtonMenuElement>(ButtonMenuElement("Create " + key, [key](auto g, auto s) {
-				if (resourceTransferOrigin == nullptr)resourceTransferOrigin = g;
+				/*if (resourceTransferOrigin == nullptr)*/ resourceTransferOrigin = g;
 				selectedElementType = key;
 				}
 			, textWidth("aa"))));
 		}
 		menu.push_back(make_shared<ButtonMenuElement>(ButtonMenuElement("Recycle element", [](auto g, auto s) {
-			if (resourceTransferOrigin == nullptr)resourceTransferOrigin = g;
+			/*if (resourceTransferOrigin == nullptr)*/resourceTransferOrigin = g;
 			selectedElementType = "";
 			}
 		, textWidth("aa"))));
@@ -1685,13 +1684,28 @@ void PhysicsGrid::displayMode2(int y) {
 		}
 		ofPopMatrix();
 	}
-	if (mousePressedOnLastFrame && mouse[2] && resourceTransferOrigin != nullptr) {//TODO:consider fluid contents in cost
+	if (selectedPart != nullptr && round(selectedPos.y) == y) {
+		glm::dvec2 sPos(-selectedPos.z * 16, -selectedPos.x * 16);
+		ofFill();
+		ofSetColor(0, 0, 255);
+		drawFaceNormal2D(selectedPart->front(), sPos + glm::dvec2(8, 8));
+		ofSetColor(0, 255, 0);
+		drawFaceNormal2D(selectedPart->top(), sPos + glm::dvec2(8, 8));
+		ofSetColor(255, 0, 0);
+		drawFaceNormal2D(selectedPart->right(), sPos + glm::dvec2(8, 8));
+		ofPushMatrix();
+		ofTranslate(sPos + menuPos);
+		ofScale(1.0 / 16);
+		selectedPart->displayMenu();
+		ofPopMatrix();
+	}
+	if (mousePressedOnLastFrame && mouse[0] && resourceTransferOrigin != nullptr) {
 		glm::dvec2 m = untransform2D(mousePos);
 		glm::dvec2 p = glm::floor(m / 16);
 		glm::dvec3 pos(-p.y, y, -p.x);
 		shared_ptr<GridElement> item = getItem(pos);
 		if (item == nullptr && elementBuildCosts.find(selectedElementType) != elementBuildCosts.end()) {
-			auto& cost = elementBuildCosts[selectedElementType];
+			unordered_map<string,double> cost = elementBuildCosts.at(selectedElementType);
 			bool afford = true;
 			for (auto& pair : cost) {
 				if (
@@ -1711,10 +1725,14 @@ void PhysicsGrid::displayMode2(int y) {
 		}
 		else if (
 			item != nullptr &&
+			item != resourceTransferOrigin &&
 			elementBuildCosts.find(selectedElementType) == elementBuildCosts.end() &&
 			elementBuildCosts.find(item->type) != elementBuildCosts.end()
 			) {
-			auto& cost = elementBuildCosts[item->type];
+			auto cost = elementBuildCosts.at(item->type);
+			for (auto& pair : item->fluids) {
+				cost[pair.first] += pair.second.first;
+			}
 			bool afford = true;
 			for (auto& pair : cost) {
 				auto it = resourceTransferOrigin->fluids.find(pair.first);
@@ -1734,21 +1752,6 @@ void PhysicsGrid::displayMode2(int y) {
 				if (selectedPos == pos)selectedPart = nullptr;//this should always be true btw
 			}
 		}
-	}
-	if (selectedPart != nullptr && round(selectedPos.y) == y) {
-		glm::dvec2 sPos(-selectedPos.z * 16, -selectedPos.x * 16);
-		ofFill();
-		ofSetColor(0, 0, 255);
-		drawFaceNormal2D(selectedPart->front(), sPos + glm::dvec2(8, 8));
-		ofSetColor(0, 255, 0);
-		drawFaceNormal2D(selectedPart->top(), sPos + glm::dvec2(8, 8));
-		ofSetColor(255, 0, 0);
-		drawFaceNormal2D(selectedPart->right(), sPos + glm::dvec2(8, 8));
-		ofPushMatrix();
-		ofTranslate(sPos + menuPos);
-		ofScale(1.0/16);
-		selectedPart->displayMenu();
-		ofPopMatrix();
 	}
 }
 void PhysicsGrid::displayMode3() {
@@ -2241,7 +2244,7 @@ void PhysicsGrid::updateInternal(double t, double dt) {
 int sceneDisplayed = 2;//0=instruments,1=map,2=craft part details,3=camera
 void dragMap() {
 	if (sceneDisplayed != 0 && sceneDisplayed != 2)return;
-	if (!mouse[0] || dontDragMap)return;
+	if (!mouse[1] || dontDragMap)return;
 	mapPos += (mousePos - pmousePos) / mapScale;
 }
 class ofApp : public ofBaseApp {

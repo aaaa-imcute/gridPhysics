@@ -31,8 +31,10 @@ void ofApp::setup(){
 	GridElement t1("metal-tank");
 	GridElement t2("command-core");
 	GridElement t3("solid-rocket-engine");
-	t1.fluids["metal"].first = 0;
-	//t3.fluids["metal"].first = 0;
+	t1.fluids["metal"].first = 1000;
+	t2.fluids["metal"].first = 2000;
+	t2.fluids["spirits"].first = 1000;
+	t3.fluids["metal"].first = 1000;
 	t3.rotateFrontFace();
 	t3.rotateFrontFace();
 	t3.rotateFrontFace();
