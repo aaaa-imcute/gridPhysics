@@ -3,9 +3,10 @@
 #include "ofMain.h"
 #include "SH.cpp"
 #include <variant>
-double ffmod(double x, double y) {
-	return fmod(fmod(x, y) + y, y);
+int ffmod(int x, int y) {
+	return (x % y + y) % y;
 }
+int ffmod(double, double) = delete;//we don't do that anymore
 unordered_map<int, bool> keys;
 unordered_map<int, bool> mouse;
 glm::dvec2 untransform2D(glm::dvec2 vec) {
@@ -44,11 +45,13 @@ public:
 		glm::dvec2 rel = mousePos - pmousePos;
 		angle.x += -rel.y * PI / ofGetHeight();
 		angle.y += -rel.x * PI * 2 / ofGetWidth();
-		angle.x = ofClamp(angle.x, -PI / 2, PI / 2);
+		angle.x = glm::clamp(angle.x, -PI / 2, PI / 2);
+		angle.y = glm::mod(angle.y, 2 * PI);
 		updateOrientation();
 	}
 	void mouseScrolled(double sx, double sy) {
 		angle.z += -sy * 50;
+		angle.z = glm::max(0.0,angle.z);
 		updateOrientation();
 	}
 	void updateOrientation() {
@@ -480,7 +483,7 @@ public:
 	double trueAnomaly(double t) {
 		double M = v + meanMotion() * t;
 		if (e < 1) {
-			M = ffmod(M, 2 * PI);
+			M = glm::mod(M, 2 * PI);
 			if (e < 1e-3) return M;//that is a big epsilon because
 			//the error is epsilon squared here
 			double E = M + e * sin(M) + 0.5 * e * e * sin(2 * M);
@@ -488,7 +491,7 @@ public:
 			while (abs(dE) > 1e-12) {
 				dE = (E - e * sin(E) - M) / (1 - e * cos(E));
 				E -= dE;
-				E = ffmod(E, 2 * PI);
+				E = glm::mod(E, 2 * PI);
 			}
 			return 2 * atan2(sqrt(1 + e) * sin(E / 2), sqrt(1 - e) * cos(E / 2));
 		}
@@ -581,36 +584,29 @@ public:
 		double ep = glm::length2(V) / 2 - p->gravity / glm::length(r);
 		a = -p->gravity / (2 * ep);
 		e = glm::length(E);
-		i = ffmod(acos(glm::clamp(h.y / glm::length(h), -1.0, 1.0)), 2 * PI);
+		i = glm::mod(acos(glm::clamp(h.y / glm::length(h), -1.0, 1.0)), 2 * PI);
 		if (isnan(i))i = 0;
-		o = ffmod(acos(glm::clamp(N.x / glm::length(N), -1.0, 1.0)), 2 * PI);
+		o = glm::mod(acos(glm::clamp(N.x / glm::length(N), -1.0, 1.0)), 2 * PI);
 		if (N.z < 0)o = 2 * PI - o;
-		w = ffmod(acos(glm::clamp(glm::dot(N, E) / (glm::length(N) * glm::length(E)), -1.0, 1.0)), 2 * PI);
+		w = glm::mod(acos(glm::clamp(glm::dot(N, E) / (glm::length(N) * glm::length(E)), -1.0, 1.0)), 2 * PI);
 		if (E.y < 0)w = 2 * PI - w;
 		if (isnan(o)) {
 			o = 0;
-			w = ffmod(atan2(E.z, E.x), 2 * PI);
+			w = glm::mod(atan2(E.z, E.x), 2 * PI);
 			if (h.y < 0)w = 2 * PI - w;
 		}
 		if (isnan(w))w = 0;
-		double n = -ffmod(acos(glm::clamp(glm::dot(E, r) / (glm::length(E) * glm::length(r)), -1.0, 1.0)), 2 * PI);
+		double n = -glm::mod(acos(glm::clamp(glm::dot(E, r) / (glm::length(E) * glm::length(r)), -1.0, 1.0)), 2 * PI);
 		//its negative for some weird reason
 		if (glm::dot(r, V) < 0) n = 2 * PI - n;
 		if (isnan(n)) {
-			n = ffmod(acos(glm::clamp(glm::dot(N, r) / (glm::length(N) * glm::length(r)), -1.0, 1.0)), 2 * PI);
+			n = glm::mod(acos(glm::clamp(glm::dot(N, r) / (glm::length(N) * glm::length(r)), -1.0, 1.0)), 2 * PI);
 			if (r.y < 0) n = 2 * PI - n;
 			if (isnan(n)) {
-				n = ffmod(acos(glm::clamp(r.x / glm::length(r), -1.0, 1.0)), 2 * PI);
+				n = glm::mod(acos(glm::clamp(r.x / glm::length(r), -1.0, 1.0)), 2 * PI);
 				if (V.x > 0) n = 2 * PI - n;
 			}
 		}
-		/*
-		double n = atan2(
-			glm::dot(r, glm::cross(h, E)) / (glm::length(h) * e * glm::length(r)),
-			glm::dot(E, r) / (glm::length(h) * glm::length(r))
-		);
-		n = ffmod(n, 2 * PI);
-		*/
 		double M;
 		if (e < 1) {
 			//M = atan2(sqrt(1 - e * e) * sin(n), e + cos(n)) - e * sqrt(1 - e * e) * sin(n) / (1 + e * cos(n));
@@ -628,7 +624,7 @@ public:
 			M = sqrt(2 * periapsis * periapsis * periapsis / p->gravity) * (D + D * D * D / 3);
 		}
 		v = M - meanMotion() * t;
-		if (e < 1)v = ffmod(v, 2 * PI);
+		if (e < 1)v = glm::mod(v, 2 * PI);
 	}
 	void displayMode1(double t) {
 		double div = 2 * PI / 256;
