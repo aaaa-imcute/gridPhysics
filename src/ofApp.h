@@ -793,7 +793,8 @@ const unordered_map<string, unordered_map<string, double>> elementBuildCosts = {
 	{"metal-tank",{{"metal",1000}}},
 	{"solid-rocket-engine",{{"metal",1000}}},
 	{"command-core",{{"spirits",1000}}},
-	{"reaction-wheel",{{"metal",500},{"spirits",500}}}
+	{"reaction-wheel",{{"metal",500},{"spirits",500}}},
+	{"resource-extractor",{{"metal",750},{"spirits",250}}}
 };
 enum class ShipSituation {
 	LANDED,
@@ -1167,6 +1168,7 @@ public:
 	MonoPropSpec monopropEngineData();//std::variant is too troublesome for this
 	BiPropSpec bipropEngineData();
 	glm::dvec3 reactionWheelTorque();
+	double extractionSpeed();
 	double throttleA = 0;
 	double throttleB = 0;
 	double throttleC = 0;
@@ -1317,6 +1319,11 @@ GridElement::GridElement(string t) {
 			}
 		, textWidth("aa"))));
 	}
+	else if(type=="resource-extractor"){
+		dryMass = 1000;
+		fluids = { {"metal", {0, 1000}} };
+		throttleA = 1;
+	}
 	if (fluids.size() != 0) {
 		menu.push_back(make_shared<ButtonMenuElement>(ButtonMenuElement("Set as transfer origin", [&](auto g, auto s) {
 			resourceTransferOrigin = g;
@@ -1464,6 +1471,7 @@ void GridElement::displayMode2() {
 double GridElement::tankTransferRate() {
 	if (type == "fire-tank")return 1000;
 	if (type == "metal-tank")return 1000;
+	if (type == "resource-extractor")return 1000;
 	return 0;
 }
 MonoPropSpec GridElement::monopropEngineData() {
@@ -1528,6 +1536,10 @@ glm::dvec3 GridElement::reactionWheelTorque() {
 	if (type == "command-core")return glm::dvec3(5000, 5000, 5000);
 	return glm::dvec3(0);
 }
+double GridElement::extractionSpeed() {
+	if (type == "resource-extractor")return 50;//TODO:balance after impl of time warp
+	return 0;
+}
 double GridElement::mass() {
 	double m = dryMass;
 	for (auto& pair : fluids) {
@@ -1539,23 +1551,23 @@ void GridElement::update(glm::dvec3 pos, double t, double dt) {
 	double rate = tankTransferRate();
 	if (rate != 0) {
 		shared_ptr<GridElement> next = parent->getItem(pos + front());
-		if (next == nullptr || type == "metal-tank" &&
-			(front() != next->front() || next->type != "metal-tank" && next->type != "solid-rocket-engine")) return;
-		//TODO:test solid fuel transfer stuff
-		for (auto& pair : fluids) {
-			auto target = next->fluids.find(pair.first);
-			if (target == next->fluids.end())continue;
-			double delta = min(rate * throttleA * dt, pair.second.first);
-			delta = min(delta, target->second.second - target->second.first);
-			delta = max(0.0, delta);//just in case
-			next->fluidChanges[pair.first] += delta;
-			fluidChanges[pair.first] -= delta;
-			//TODO:fix obvious problem of multiple fuel tanks pointing to a single one
-			//being able to push too much fuel into said tank
-			//(not a major issue:problem is self limiting as the tank cannot get fuller
-			//after it is more than full on the next tick)
+		if (!(next == nullptr || type == "metal-tank" &&
+			(front() != next->front() || next->type != "metal-tank" && next->type != "solid-rocket-engine"))) {
+			for (auto& pair : fluids) {
+				auto target = next->fluids.find(pair.first);
+				if (target == next->fluids.end())continue;
+				double delta = min(rate * throttleA * dt, pair.second.first);
+				delta = min(delta, target->second.second - target->second.first);
+				delta = max(0.0, delta);//just in case
+				next->fluidChanges[pair.first] += delta;
+				fluidChanges[pair.first] -= delta;
+				//TODO:fix obvious problem of multiple fuel tanks pointing to a single one
+				//being able to push too much fuel into said tank
+				//(not a major issue:problem is self limiting as the tank cannot get fuller
+				//after it is more than full on the next tick)
+			}
 		}
-		return;
+		
 	}
 	double h = glm::length(parent->position) - parent->soi->radius;
 	double Pa = (h > parent->soi->atmoHeight()) ? 0 : parent->soi->atmoPressure(h);
@@ -1563,33 +1575,35 @@ void GridElement::update(glm::dvec3 pos, double t, double dt) {
 	auto specB = bipropEngineData();
 	if (specA.maxR) {
 		shared_ptr<GridElement> next = parent->getItem(pos + front());
-		if (next != nullptr) return;//oops,obstructed
 		//TODO:better obstruction check
 		//(check for all blocks in a cone?and the angle is related to how much the atmosphere harms the isp?)
-		double r = throttleA;
-		pair<double, double> pair = fluids[specA.R];
-		double fuel = pair.first;
-		double delta = min(fuel / dt, specA.maxR * r);
-		thrust = -front() * delta * calculateEjectionVelocity(specA, Pa, r);
-		fluidChanges[specA.R] -= delta * dt;
+		if (next == nullptr) {
+			double r = throttleA;
+			pair<double, double> pair = fluids[specA.R];
+			double fuel = pair.first;
+			double delta = min(fuel / dt, specA.maxR * r);
+			thrust = -front() * delta * calculateEjectionVelocity(specA, Pa, r);
+			fluidChanges[specA.R] -= delta * dt;
+		}
 	}
 	else if (specB.maxX) {
 		shared_ptr<GridElement> next = parent->getItem(pos + front());
-		if (next != nullptr) return;//oops,obstructed
 		//TODO:better obstruction check
 		//(check for all blocks in a cone?and the angle is related to how much the atmosphere harms the isp?)
-		double x = specB.maxX * throttleA;
-		double y = specB.maxY * throttleB;
-		pair<double, double> pairA = fluids[specB.A];
-		pair<double, double> pairB = fluids[specB.B];
-		double A = pairA.first;
-		double B = pairB.first;
-		double deltaA = min(A / dt, x);
-		double deltaB = min(B / dt, y);
-		double delta = deltaA + deltaB;
-		thrust = -front() * delta * calculateEjectionVelocity(specB, Pa, x, y);
-		fluidChanges[specB.A] -= deltaA * dt;
-		fluidChanges[specB.B] -= deltaB * dt;
+		if (next == nullptr) {
+			double x = specB.maxX * throttleA;
+			double y = specB.maxY * throttleB;
+			pair<double, double> pairA = fluids[specB.A];
+			pair<double, double> pairB = fluids[specB.B];
+			double A = pairA.first;
+			double B = pairB.first;
+			double deltaA = min(A / dt, x);
+			double deltaB = min(B / dt, y);
+			double delta = deltaA + deltaB;
+			thrust = -front() * delta * calculateEjectionVelocity(specB, Pa, x, y);
+			fluidChanges[specB.A] -= deltaA * dt;
+			fluidChanges[specB.B] -= deltaB * dt;
+		}
 	}
 	else {
 		thrust = glm::dvec3(0, 0, 0);
@@ -1602,6 +1616,14 @@ void GridElement::update(glm::dvec3 pos, double t, double dt) {
 	}
 	else {
 		torque = glm::dvec3(0);
+	}
+	double r = extractionSpeed();
+	if (r > 0) {
+		//TODO:mine other things than metal
+		//TODO:touching ground check(remember to check back side bc front side is the one transfering away metal)
+		if (parent->situ == ShipSituation::LANDED) {
+			fluidChanges["metal"] += min(r * dt, fluids["metal"].second - fluids["metal"].first - fluidChanges["metal"]);
+		}
 	}
 }
 void GridElement::integrate(double t, double dt) {
