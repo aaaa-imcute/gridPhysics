@@ -796,6 +796,7 @@ const unordered_map<string, unordered_map<string, double>> elementBuildCosts = {
 	{"reaction-wheel",{{"metal",500},{"spirits",500}}},
 	{"resource-extractor",{{"metal",750},{"spirits",250}}}
 };
+constexpr double drillCOF = 81.0/256.0;//random number(e.g 1/pi rounded to nearest 256th),unique
 enum class ShipSituation {
 	LANDED,
 	SlIDING,
@@ -1323,6 +1324,7 @@ GridElement::GridElement(string t) {
 		dryMass = 1000;
 		fluids = { {"metal", {0, 1000}} };
 		throttleA = 1;
+		COF = drillCOF;
 	}
 	if (fluids.size() != 0) {
 		menu.push_back(make_shared<ButtonMenuElement>(ButtonMenuElement("Set as transfer origin", [&](auto g, auto s) {
@@ -1620,9 +1622,18 @@ void GridElement::update(glm::dvec3 pos, double t, double dt) {
 	double r = extractionSpeed();
 	if (r > 0) {
 		//TODO:mine other things than metal
-		//TODO:touching ground check(remember to check back side bc front side is the one transfering away metal)
+		//TODO:better touching ground check(differentiate between different drills maybe?minor issue)
 		if (parent->situ == ShipSituation::LANDED) {
-			fluidChanges["metal"] += min(r * dt, fluids["metal"].second - fluids["metal"].first - fluidChanges["metal"]);
+			bool ok = false;
+			for (auto pair : parent->contacts) {
+				if (pair.second == drillCOF) {
+					ok = true;
+					break;
+				}
+			}
+			if (ok) {
+				fluidChanges["metal"] += min(r * dt, fluids["metal"].second - fluids["metal"].first - fluidChanges["metal"]);
+			}
 		}
 	}
 }
